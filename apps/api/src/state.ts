@@ -1,0 +1,240 @@
+import type {
+  ActivityLogItem,
+  AppSettings,
+  CampaignSummary,
+  DashboardSummary,
+  DeploymentLogItem,
+  QueueItem,
+  UserSummary,
+  WallpaperSummary,
+} from "@cwcm/types";
+import { appConfig } from "./config.js";
+import type { AppState } from "./types.js";
+
+const nowIso = new Date().toISOString();
+
+const users: UserSummary[] = [
+  {
+    id: "user-admin-1",
+    username: "Widji",
+    role: "ADMINISTRATOR",
+    isActive: true,
+    lastLoginAt: nowIso,
+  },
+  {
+    id: "user-operator-1",
+    username: "Rian Pratama",
+    role: "OPERATOR",
+    isActive: true,
+    lastLoginAt: new Date(Date.now() - 86400000).toISOString(),
+  },
+  {
+    id: "user-viewer-1",
+    username: "Dewi Lestari",
+    role: "VIEWER",
+    isActive: true,
+    lastLoginAt: new Date(Date.now() - 172800000).toISOString(),
+  },
+];
+
+const wallpapers: WallpaperSummary[] = [
+  {
+    id: "wallpaper-1",
+    title: "Safety Awareness 2026",
+    filename: "Safety_Awareness_2026.jpg",
+    description: "Monthly safety campaign",
+    tags: ["safety", "monthly"],
+    resolution: "1920x1080",
+    sizeBytes: 2400000,
+    checksumSha256: "a1b2c3d4e5f6",
+    uploadedAt: nowIso,
+    usageStatus: "IN_USE",
+  },
+  {
+    id: "wallpaper-2",
+    title: "Independence Day",
+    filename: "Independence_Day_2026.jpg",
+    description: "National celebration wallpaper",
+    tags: ["holiday"],
+    resolution: "1920x1080",
+    sizeBytes: 1800000,
+    checksumSha256: "b1c2d3e4f5g6",
+    uploadedAt: nowIso,
+    usageStatus: "SCHEDULED",
+  },
+  {
+    id: "wallpaper-3",
+    title: "Company Anniversary 25",
+    filename: "Anniversary_25.jpg",
+    description: "Company celebration wallpaper",
+    tags: ["anniversary"],
+    resolution: "1920x1080",
+    sizeBytes: 2100000,
+    checksumSha256: "c1d2e3f4g5h6",
+    uploadedAt: nowIso,
+    usageStatus: "SCHEDULED",
+  },
+];
+
+const campaigns: CampaignSummary[] = [
+  {
+    id: "campaign-1",
+    name: "Safety Awareness 2026",
+    wallpaperId: "wallpaper-1",
+    wallpaperTitle: "Safety Awareness 2026",
+    description: "Monthly safety campaign",
+    startDate: "2026-07-23T00:00:00.000Z",
+    endDate: "2026-07-31T23:59:59.000Z",
+    priority: 10,
+    status: "ACTIVE",
+  },
+  {
+    id: "campaign-2",
+    name: "Independence Day",
+    wallpaperId: "wallpaper-2",
+    wallpaperTitle: "Independence Day",
+    description: "National day wallpaper",
+    startDate: "2026-08-01T00:00:00.000Z",
+    endDate: "2026-08-17T23:59:59.000Z",
+    priority: 7,
+    status: "SCHEDULED",
+  },
+  {
+    id: "campaign-3",
+    name: "Company Anniversary",
+    wallpaperId: "wallpaper-3",
+    wallpaperTitle: "Company Anniversary 25",
+    description: "Anniversary wallpaper",
+    startDate: "2026-09-01T00:00:00.000Z",
+    endDate: "2026-09-07T23:59:59.000Z",
+    priority: 8,
+    status: "SCHEDULED",
+  },
+];
+
+const queue: QueueItem[] = [
+  {
+    id: "queue-1",
+    campaignId: "campaign-1",
+    positionLabel: "NOW",
+    name: "Safety Awareness 2026",
+    scheduleLabel: "23 Jul - 31 Jul 2026",
+    wallpaperUrl: "/assets/wallpaper-safety.jpg",
+    status: "ACTIVE",
+  },
+  {
+    id: "queue-2",
+    campaignId: "campaign-2",
+    positionLabel: "NEXT",
+    name: "Independence Day",
+    scheduleLabel: "1 Aug - 17 Aug 2026",
+    wallpaperUrl: "/assets/wallpaper-independence.jpg",
+    status: "SCHEDULED",
+  },
+  {
+    id: "queue-3",
+    campaignId: "campaign-3",
+    positionLabel: "NEXT",
+    name: "Company Anniversary",
+    scheduleLabel: "1 Sep - 7 Sep 2026",
+    wallpaperUrl: "/assets/wallpaper-anniversary.jpg",
+    status: "SCHEDULED",
+  },
+];
+
+const deploymentLogs: DeploymentLogItem[] = [
+  {
+    id: "deploy-1",
+    campaignId: "campaign-1",
+    campaignName: "Safety Awareness 2026",
+    startedAt: "2026-07-23T08:00:00.000Z",
+    finishedAt: "2026-07-23T08:00:15.000Z",
+    durationSeconds: 15,
+    result: "SUCCESS",
+    operator: "scheduler",
+    message: "Published wallpaper to SYSVOL and verified checksum.",
+  },
+  {
+    id: "deploy-2",
+    campaignId: "campaign-1",
+    campaignName: "Safety Awareness 2026",
+    startedAt: "2026-07-22T08:00:00.000Z",
+    finishedAt: "2026-07-22T08:00:12.000Z",
+    durationSeconds: 12,
+    result: "SUCCESS",
+    operator: "scheduler",
+    message: "Verification completed successfully.",
+  },
+];
+
+const activityLogs: ActivityLogItem[] = [
+  {
+    id: "activity-1",
+    title: "Wallpaper uploaded",
+    detail: "Independence_Day_2026.jpg",
+    timestamp: nowIso,
+    actor: "Widji",
+  },
+  {
+    id: "activity-2",
+    title: "Campaign scheduled",
+    detail: "Independence Day",
+    timestamp: new Date(Date.now() - 3600000).toISOString(),
+    actor: "Widji",
+  },
+  {
+    id: "activity-3",
+    title: "Deployment completed",
+    detail: "Safety Awareness 2026",
+    timestamp: new Date(Date.now() - 7200000).toISOString(),
+    actor: "scheduler",
+  },
+];
+
+const settings: AppSettings = {
+  sysvolPath: `${appConfig.CIFS_SHARE_PATH}${appConfig.SHARED_FOLDER_PATH.startsWith("/") ? appConfig.SHARED_FOLDER_PATH : `/${appConfig.SHARED_FOLDER_PATH}`}`,
+  wallpaperFilename: "Wallpaper.jpg",
+  storageLocation: appConfig.APP_STORAGE_PATH,
+  schedulerIntervalMinutes: 1,
+  deploymentTimeoutSeconds: 60,
+  retryAttempts: 3,
+  maxUploadSizeMb: 20,
+  allowedExtensions: [".jpg", ".jpeg", ".png"],
+  overwriteExistingWallpaper: true,
+  autoRetryFailedDeployments: true,
+};
+
+const dashboard: DashboardSummary = {
+  currentCampaign: campaigns[0],
+  nextCampaign: campaigns[1],
+  schedulerStatus: {
+    healthy: true,
+    queueState: "RUNNING",
+    intervalMinutes: settings.schedulerIntervalMinutes,
+    lastRunAt: new Date(Date.now() - 60000).toISOString(),
+    nextRunAt: new Date(Date.now() + 60000).toISOString(),
+  },
+  deploymentStats: {
+    success: 128,
+    failed: 2,
+    warning: 1,
+    total: 131,
+  },
+  recentActivity: activityLogs,
+  systemInfo: {
+    sysvolPath: settings.sysvolPath,
+    wallpaperFilename: settings.wallpaperFilename,
+    serverTime: nowIso,
+  },
+};
+
+export const state: AppState = {
+  users,
+  wallpapers,
+  campaigns,
+  queue,
+  deploymentLogs,
+  activityLogs,
+  settings,
+  dashboard,
+};

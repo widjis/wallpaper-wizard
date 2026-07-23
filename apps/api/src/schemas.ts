@@ -1,0 +1,32 @@
+import { z } from "zod";
+
+export const loginSchema = z.object({
+  username: z.string().min(1),
+  password: z.string().min(1),
+});
+
+export const campaignCreateSchema = z.object({
+  name: z.string().min(1),
+  wallpaperId: z.string().min(1),
+  description: z.string().nullable().optional(),
+  startDate: z.string().datetime().nullable().optional(),
+  endDate: z.string().datetime().nullable().optional(),
+  priority: z.number().int().min(0),
+});
+
+export const queueReorderSchema = z.object({
+  campaignIds: z.array(z.string()).min(1),
+});
+
+export const settingsUpdateSchema = z.object({
+  sysvolPath: z.string().min(1),
+  wallpaperFilename: z.string().min(1),
+  storageLocation: z.string().min(1),
+  schedulerIntervalMinutes: z.number().int().min(1),
+  deploymentTimeoutSeconds: z.number().int().min(1),
+  retryAttempts: z.number().int().min(0),
+  maxUploadSizeMb: z.number().int().min(1),
+  allowedExtensions: z.array(z.string()).min(1),
+  overwriteExistingWallpaper: z.boolean(),
+  autoRetryFailedDeployments: z.boolean(),
+});

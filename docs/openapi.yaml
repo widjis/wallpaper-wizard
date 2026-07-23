@@ -1,0 +1,741 @@
+openapi: 3.1.0
+info:
+  title: CWCM API
+  version: 0.1.0-draft
+  description: >
+    Draft API contract baseline for Corporate Wallpaper Campaign Manager.
+    This document reflects the intended backend surface required by the PRD.
+servers:
+  - url: http://localhost:3000/api
+    description: Local development
+tags:
+  - name: Auth
+  - name: Dashboard
+  - name: Wallpapers
+  - name: Campaigns
+  - name: Queue
+  - name: Deployments
+  - name: Activity
+  - name: Settings
+  - name: Health
+paths:
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Login with username and password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Authenticated session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthSession"
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Logout current session
+      security:
+        - bearerAuth: []
+      responses:
+        "204":
+          description: Logged out
+  /dashboard/summary:
+    get:
+      tags: [Dashboard]
+      summary: Get dashboard summary
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Dashboard metrics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardSummary"
+  /wallpapers:
+    get:
+      tags: [Wallpapers]
+      summary: List wallpapers
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Wallpaper list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Wallpaper"
+    post:
+      tags: [Wallpapers]
+      summary: Upload wallpaper
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        "201":
+          description: Wallpaper created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Wallpaper"
+  /wallpapers/{wallpaperId}:
+    get:
+      tags: [Wallpapers]
+      summary: Get wallpaper detail
+      parameters:
+        - $ref: "#/components/parameters/WallpaperId"
+      responses:
+        "200":
+          description: Wallpaper detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Wallpaper"
+    delete:
+      tags: [Wallpapers]
+      summary: Delete wallpaper
+      parameters:
+        - $ref: "#/components/parameters/WallpaperId"
+      responses:
+        "204":
+          description: Wallpaper deleted
+  /campaigns:
+    get:
+      tags: [Campaigns]
+      summary: List campaigns
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Campaign list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Campaign"
+    post:
+      tags: [Campaigns]
+      summary: Create campaign
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCampaignRequest"
+      responses:
+        "201":
+          description: Campaign created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Campaign"
+  /campaigns/{campaignId}:
+    get:
+      tags: [Campaigns]
+      summary: Get campaign detail
+      parameters:
+        - $ref: "#/components/parameters/CampaignId"
+      responses:
+        "200":
+          description: Campaign detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Campaign"
+    patch:
+      tags: [Campaigns]
+      summary: Update campaign
+      parameters:
+        - $ref: "#/components/parameters/CampaignId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateCampaignRequest"
+      responses:
+        "200":
+          description: Campaign updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Campaign"
+    delete:
+      tags: [Campaigns]
+      summary: Delete campaign
+      parameters:
+        - $ref: "#/components/parameters/CampaignId"
+      responses:
+        "204":
+          description: Campaign deleted
+  /campaigns/{campaignId}/activate:
+    post:
+      tags: [Campaigns]
+      summary: Activate campaign immediately
+      parameters:
+        - $ref: "#/components/parameters/CampaignId"
+      responses:
+        "202":
+          description: Activation accepted
+  /campaigns/{campaignId}/cancel:
+    post:
+      tags: [Campaigns]
+      summary: Cancel campaign
+      parameters:
+        - $ref: "#/components/parameters/CampaignId"
+      responses:
+        "202":
+          description: Cancellation accepted
+  /queue:
+    get:
+      tags: [Queue]
+      summary: Get ordered queue
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Queue state
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/QueueEntry"
+                  state:
+                    type: string
+                    enum: [RUNNING, PAUSED]
+  /queue/reorder:
+    post:
+      tags: [Queue]
+      summary: Reorder queue
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReorderQueueRequest"
+      responses:
+        "200":
+          description: Queue reordered
+  /queue/pause:
+    post:
+      tags: [Queue]
+      summary: Pause queue processing
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Pause accepted
+  /queue/resume:
+    post:
+      tags: [Queue]
+      summary: Resume queue processing
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Resume accepted
+  /deployments:
+    get:
+      tags: [Deployments]
+      summary: List deployment history
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Deployment log list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/DeploymentLog"
+  /deployments/{deploymentId}:
+    get:
+      tags: [Deployments]
+      summary: Get deployment detail
+      parameters:
+        - $ref: "#/components/parameters/DeploymentId"
+      responses:
+        "200":
+          description: Deployment detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeploymentLog"
+  /deployments/{deploymentId}/verify:
+    post:
+      tags: [Deployments]
+      summary: Re-run deployment verification
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/DeploymentId"
+      responses:
+        "200":
+          description: Verification accepted
+  /deployments/force:
+    post:
+      tags: [Deployments]
+      summary: Trigger manual deployment
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Deployment created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeploymentLog"
+  /activity:
+    get:
+      tags: [Activity]
+      summary: List activity logs
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Activity log list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ActivityLog"
+  /settings:
+    get:
+      tags: [Settings]
+      summary: Get runtime settings
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SystemSettings"
+    put:
+      tags: [Settings]
+      summary: Update runtime settings
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateSystemSettingsRequest"
+      responses:
+        "200":
+          description: Updated settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SystemSettings"
+  /health:
+    get:
+      tags: [Health]
+      summary: Get system health
+      responses:
+        "200":
+          description: Health status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+  /users:
+    get:
+      tags: [Auth]
+      summary: List users
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: User list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/User"
+  /scheduler/run:
+    post:
+      tags: [Deployments]
+      summary: Trigger scheduler cycle manually
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Scheduler cycle accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accepted:
+                    type: boolean
+                  queueState:
+                    type: string
+                    enum: [RUNNING, PAUSED]
+                  deployment:
+                    $ref: "#/components/schemas/DeploymentLog"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: Token
+  parameters:
+    WallpaperId:
+      name: wallpaperId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    CampaignId:
+      name: campaignId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    DeploymentId:
+      name: deploymentId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+  schemas:
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+    AuthSession:
+      type: object
+      properties:
+        token:
+          type: string
+        user:
+          $ref: '#/components/schemas/User'
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        username:
+          type: string
+        role:
+          type: string
+          enum: [ADMINISTRATOR, OPERATOR, VIEWER]
+        isActive:
+          type: boolean
+    Wallpaper:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        filename:
+          type: string
+        description:
+          type: string
+          nullable: true
+        tags:
+          type: array
+          items:
+            type: string
+        resolution:
+          type: string
+        sizeBytes:
+          type: integer
+        checksumSha256:
+          type: string
+        uploadedAt:
+          type: string
+          format: date-time
+    Campaign:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        wallpaperId:
+          type: string
+          format: uuid
+        description:
+          type: string
+          nullable: true
+        startDate:
+          type: string
+          format: date-time
+          nullable: true
+        endDate:
+          type: string
+          format: date-time
+          nullable: true
+        priority:
+          type: integer
+        status:
+          type: string
+          enum: [DRAFT, SCHEDULED, ACTIVE, COMPLETED, CANCELLED]
+    CreateCampaignRequest:
+      type: object
+      required: [name, wallpaperId, priority]
+      properties:
+        name:
+          type: string
+        wallpaperId:
+          type: string
+          format: uuid
+        description:
+          type: string
+        startDate:
+          type: string
+          format: date-time
+        endDate:
+          type: string
+          format: date-time
+        priority:
+          type: integer
+    UpdateCampaignRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        wallpaperId:
+          type: string
+          format: uuid
+        description:
+          type: string
+        startDate:
+          type: string
+          format: date-time
+        endDate:
+          type: string
+          format: date-time
+        priority:
+          type: integer
+        status:
+          type: string
+          enum: [DRAFT, SCHEDULED, ACTIVE, COMPLETED, CANCELLED]
+    QueueEntry:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        campaignId:
+          type: string
+          format: uuid
+        positionLabel:
+          type: string
+          enum: [NOW, NEXT]
+        name:
+          type: string
+        scheduleLabel:
+          type: string
+        wallpaperUrl:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [DRAFT, SCHEDULED, ACTIVE, COMPLETED, CANCELLED]
+    ReorderQueueRequest:
+      type: object
+      required: [campaignIds]
+      properties:
+        campaignIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+    DeploymentLog:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        campaignId:
+          type: string
+          format: uuid
+        wallpaperId:
+          type: string
+          format: uuid
+        triggerSource:
+          type: string
+          enum: [SCHEDULER, MANUAL, RETRY]
+        startedAt:
+          type: string
+          format: date-time
+        finishedAt:
+          type: string
+          format: date-time
+          nullable: true
+        durationMs:
+          type: integer
+          nullable: true
+        result:
+          type: string
+          enum: [SUCCESS, FAILED, WARNING]
+        message:
+          type: string
+          nullable: true
+        targetPath:
+          type: string
+        targetFilename:
+          type: string
+        verifiedExists:
+          type: boolean
+          nullable: true
+        verifiedSizeBytes:
+          type: integer
+          nullable: true
+        verifiedChecksumSha256:
+          type: string
+          nullable: true
+    ActivityLog:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        actor:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        detail:
+          type: string
+    SystemSettings:
+      type: object
+      properties:
+        sysvolPath:
+          type: string
+        wallpaperFilename:
+          type: string
+        storageLocation:
+          type: string
+        maxUploadSizeMb:
+          type: integer
+        allowedExtensions:
+          type: array
+          items:
+            type: string
+        schedulerIntervalMinutes:
+          type: integer
+        deploymentTimeoutSeconds:
+          type: integer
+        retryAttempts:
+          type: integer
+    UpdateSystemSettingsRequest:
+      type: object
+      properties:
+        sysvolPath:
+          type: string
+        wallpaperFilename:
+          type: string
+        storageLocation:
+          type: string
+        maxUploadSizeMb:
+          type: integer
+        allowedExtensions:
+          type: array
+          items:
+            type: string
+        schedulerIntervalMinutes:
+          type: integer
+        deploymentTimeoutSeconds:
+          type: integer
+        retryAttempts:
+          type: integer
+    DashboardSummary:
+      type: object
+      properties:
+        activeCampaign:
+          $ref: "#/components/schemas/Campaign"
+        nextCampaign:
+          $ref: "#/components/schemas/Campaign"
+        schedulerHealthy:
+          type: boolean
+        deploymentStats:
+          type: object
+          properties:
+            success:
+              type: integer
+            failed:
+              type: integer
+            warning:
+              type: integer
+        recentActivity:
+          type: array
+          items:
+            $ref: "#/components/schemas/ActivityLog"
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded, failed]
+        api:
+          type: string
+        database:
+          type: string
+        redis:
+          type: string
+        storage:
+          type: string

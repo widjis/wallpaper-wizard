@@ -1,0 +1,120 @@
+# Deployment And Environment
+
+## Purpose
+
+Document the environment inputs required for CWCM MVP deployment without storing secrets in repository documentation.
+
+## Current Deployment Direction
+
+- runtime model: Docker Compose
+- deployment engine runtime: Linux containers
+- SYSVOL publishing: SMB access from containerized worker or service
+- authentication for MVP: local application auth
+- future capability available in environment: LDAP / Active Directory integration
+
+## Repository Implementation Status
+
+Implemented baseline:
+
+- `docker-compose.yml` with `redis`, `api`, and `web` services
+- `docker/api.Dockerfile`
+- `docker/web.Dockerfile`
+- validated backend config loader in `apps/api/src/config.ts`
+
+Current limitation:
+
+- Docker Compose baseline exists, but deployment to SMB / SYSVOL is still simulated in application logic and not yet mounted or copied into the target share
+- production database is expected to be external and supplied through `.env`, not provisioned by Compose
+
+## Required Environment Groups
+
+### Database
+
+Required keys observed in `.env`:
+
+- `POSTGRES_URL`
+- `POSTGRES_USERNAME`
+- `POSTGRES_PASSWORD`
+- `POSTGRES_DATABASE`
+- `POSTGRES_CREATE_DATABASE`
+- `POSTGRES_SSL`
+- `POSTGRES_SSL_REJECT_UNAUTHORIZED`
+
+Usage notes:
+
+- `POSTGRES_URL` should be treated as the primary connection string
+- the application should avoid duplicating config sources unless needed for migration or admin scripts
+- production deployment should connect to the existing PostgreSQL instance defined in `.env`
+- Docker Compose in this repository does not start an internal PostgreSQL container for production use
+
+### Domain / SMB Deployment
+
+Required keys observed in `.env`:
+
+- `DOMAIN_NAME`
+- `DOMAIN_USERNAME`
+- `DOMAIN_PASSWORD`
+- `SHARED_FOLDER_PATH`
+- `CIFS_SHARE_PATH`
+- `CIFS_VERS`
+
+Usage notes:
+
+- `CIFS_SHARE_PATH` identifies the SYSVOL share root
+- `SHARED_FOLDER_PATH` appears to define the target path used by the application inside the mounted or copied share flow
+- domain credentials should only be used by the deployment component that needs SYSVOL access
+
+### LDAP
+
+Available keys observed in `.env`:
+
+- `LDAP_URL`
+- `LDAP_BIND_DN`
+- `LDAP_BIND_PASSWORD`
+- `LDAP_BASE_DN`
+
+Usage notes:
+
+- LDAP is not in MVP scope for authentication
+- these keys may remain unused in Phase 1 and Phase 2, but should be preserved for later integration phases
+
+## MVP Configuration Ownership
+
+### Environment-Managed
+
+- database credentials
+- domain credentials
+- LDAP bind credentials
+- raw connection endpoints
+- external PostgreSQL host selection
+
+### UI-Editable Operational Settings
+
+- SYSVOL target path
+- wallpaper filename
+- storage location
+- scheduler interval
+- deployment timeout
+- retry attempts
+- upload size limit
+- allowed file extensions
+
+## Security Handling Rules
+
+- never copy secret values from `.env` into committed docs, code comments, or examples
+- pass runtime secrets through environment variables or deployment secrets only
+- avoid returning secret values from API settings endpoints
+- audit settings changes, but redact secret material in logs
+
+## Phase 1 Recommendation
+
+- keep `.env` as the single operational source for bootstrap and secret configuration
+- implement a validated config layer in the future backend so missing required keys fail fast
+- separate UI-editable settings from bootstrap secrets in the data model and API
+
+## Next Environment Tasks
+
+- decide exact container-to-SMB strategy for production execution
+- add env validation for optional versus mandatory keys per phase
+- add secret rotation and operational runbook guidance
+- document fallback local-development strategy if a standalone PostgreSQL container is ever needed outside production
