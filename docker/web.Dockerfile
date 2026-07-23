@@ -15,4 +15,4 @@ RUN npm run build:web
 
 EXPOSE 3001
 
-CMD ["npm", "run", "preview", "-w", "@cwcm/web", "--", "--host", "0.0.0.0", "--port", "3001"]
+CMD ["sh", "-c", "cd apps/web && HOST=0.0.0.0 PORT=3001 node .output/server/index.mjs"]
