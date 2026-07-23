@@ -83,23 +83,23 @@ This document defines the target logical database model for CWCM.
 
 ### DeploymentLog
 
-| Field                  | Type              | Notes                          |
-| ---------------------- | ----------------- | ------------------------------ |
-| id                     | UUID              | Primary key                    |
-| campaignId             | UUID              | FK to Campaign                 |
-| wallpaperId            | UUID              | FK to Wallpaper                |
-| triggeredByUserId      | UUID nullable     | Null when scheduler triggered  |
-| triggerSource          | Enum              | `SCHEDULER`, `MANUAL`, `RETRY` |
-| startedAt              | DateTime          | Deployment start               |
-| finishedAt             | DateTime nullable | Deployment finish              |
-| durationMs             | Int nullable      | Elapsed duration               |
-| result                 | Enum              | `SUCCESS`, `FAILED`, `WARNING` |
-| message                | Text nullable     | Human-readable summary         |
-| targetPath             | String            | SYSVOL target path             |
-| targetFilename         | String            | Usually `Wallpaper.jpg`        |
-| verifiedExists         | Boolean nullable  | Verification outcome           |
-| verifiedSizeBytes      | BigInt nullable   | Observed target file size      |
-| verifiedChecksumSha256 | String nullable   | Observed checksum              |
+| Field                  | Type              | Notes                                                   |
+| ---------------------- | ----------------- | ------------------------------------------------------- |
+| id                     | UUID              | Primary key                                             |
+| campaignId             | UUID nullable     | FK to Campaign, null when default wallpaper is deployed |
+| wallpaperId            | UUID              | FK to Wallpaper                                         |
+| triggeredByUserId      | UUID nullable     | Null when scheduler triggered                           |
+| triggerSource          | Enum              | `SCHEDULER`, `MANUAL`, `RETRY`                          |
+| startedAt              | DateTime          | Deployment start                                        |
+| finishedAt             | DateTime nullable | Deployment finish                                       |
+| durationMs             | Int nullable      | Elapsed duration                                        |
+| result                 | Enum              | `SUCCESS`, `FAILED`, `WARNING`                          |
+| message                | Text nullable     | Human-readable summary                                  |
+| targetPath             | String            | SYSVOL target path                                      |
+| targetFilename         | String            | Usually `Wallpaper.jpg`                                 |
+| verifiedExists         | Boolean nullable  | Verification outcome                                    |
+| verifiedSizeBytes      | BigInt nullable   | Observed target file size                               |
+| verifiedChecksumSha256 | String nullable   | Observed checksum                                       |
 
 ### ActivityLog
 
@@ -121,6 +121,20 @@ This document defines the target logical database model for CWCM.
 | valueJson   | JSON          | Typed value payload |
 | updatedById | UUID nullable | FK to User          |
 | updatedAt   | DateTime      | Update timestamp    |
+
+Current runtime keys include:
+
+- `sysvolPath`
+- `wallpaperFilename`
+- `defaultWallpaperId`
+- `storageLocation`
+- `schedulerIntervalMinutes`
+- `deploymentTimeoutSeconds`
+- `retryAttempts`
+- `maxUploadSizeMb`
+- `allowedExtensions`
+- `overwriteExistingWallpaper`
+- `autoRetryFailedDeployments`
 
 ### Session
 
@@ -177,6 +191,7 @@ This document defines the target logical database model for CWCM.
 
 - one user uploads many wallpapers
 - one wallpaper can be referenced by many campaigns
+- one wallpaper can also be referenced by the `defaultWallpaperId` system setting
 - one campaign can have many deployment logs
 - one campaign can have one active queue entry at a time
 - one user can create many campaigns

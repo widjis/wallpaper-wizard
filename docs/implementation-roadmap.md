@@ -3,8 +3,8 @@
 ## Status Summary
 
 - Active phase: Phase 5
-- Overall status: MVP foundation is substantially implemented, with frontend operator workflows now closed and remaining release blockers limited to performance target compliance and target-environment SYSVOL validation
-- Last update reason: runtime auth and CORS defects were corrected, campaign edit and settings persistence were verified from the browser, and hardening evidence was refreshed
+- Overall status: MVP foundation is substantially implemented, and the residual hybrid mock/fallback UI backlog has now been cleared across the main web menus
+- Last update reason: default wallpaper fallback was added to settings and deployment selection so the system can revert to origin wallpaper when no campaign is active
 
 ## Phase 0 - Documentation Baseline And Repo Assessment
 
@@ -156,7 +156,7 @@ Implement campaign orchestration and wallpaper publishing.
 
 ### Objective
 
-Replace mock data with live API integration and complete operator workflows.
+Replace mock data with live API integration for operator-critical workflows and identify any residual hybrid UI that still requires cleanup.
 
 ### Source Documents
 
@@ -165,21 +165,29 @@ Replace mock data with live API integration and complete operator workflows.
 
 ### Checklist
 
-- [x] connect dashboard to live data
+- [x] connect dashboard summary to live data
 - [x] implement wallpaper upload baseline on API side and live wallpaper list in UI
 - [x] implement campaign create flow from UI
 - [x] implement campaign edit flow from UI
 - [x] implement queue actions
-- [x] implement deployment history and activity log views
+- [x] implement deployment history baseline in UI
 - [x] implement settings persistence
+- [x] verify login and protected-route session handling in the web shell
+- [x] remove residual dashboard static sections and fallback sample data
+- [x] remove residual wallpaper-library sample cards and wire search/filter controls
+- [x] remove residual queue fallback rows and clarify force-deploy UX
+- [x] remove residual history sample rows and expose audit activity in UI
+- [x] remove residual users sample rows and resolve synthetic email presentation
+- [x] remove non-production debug instrumentation from the campaigns route
+- [x] add role-aware navigation and action visibility in the web shell
 
 ### Output
 
-- real working web portal for operators and administrators
+- web portal with mock-free main operator workflows and role-aware navigation/action behavior
 
 ### Challenge / Verification
 
-- main dashboard, wallpaper, campaign list, queue, deployment, history, users, and settings pages now consume live API endpoints
+- main dashboard, wallpaper, campaign list, queue, deployment, history, users, and settings pages now consume at least one live API endpoint
 - login screen and session handling were added to the web app
 - browser smoke validation on 2026-07-23 passed for login, wallpaper upload, campaign create, campaign edit, queue pause/resume, settings save, deployment verify UI flow, and logout
 - upload flow now shows explicit success or failure toast feedback in the operator UI
@@ -190,7 +198,8 @@ Replace mock data with live API integration and complete operator workflows.
 - campaigns now support create, edit, delete, duplicate, activate-now, cancel, and lightweight search/filter behavior from the web UI
 - queue view now supports pause/resume, remove item, and move up/down reorder controls backed by the API
 - users view now supports create, edit, and delete flows backed by protected API routes
-- history view now supports client-side search, result toggle, date-range toggle, and CSV export
+- history view now supports client-side search, result toggle, date-range toggle, and CSV export against deployment rows
+- route audit on 2026-07-23 initially identified residual frontend gaps in Dashboard, Wallpapers, Timeline, Deployment, History, Users, and shell affordances; those UI gaps were then implemented and re-verified on the same date, with final evidence recorded in `docs/ui-ux-wiring-audit.md`
 - residual gap: role enforcement is still backend-minimal and automated scheduler execution remains deferred
 
 ## Phase 5 - Hardening And Release Readiness
@@ -210,12 +219,25 @@ Prepare the product for operational deployment.
 - [x] add operational logging baseline through Fastify logger
 - [x] add deployment and rollback runbook baseline
 - [ ] verify performance targets
+- [x] remove residual sample-data fallback from dashboard route
+- [x] remove residual sample-data fallback from wallpaper route
+- [x] remove residual sample-data fallback from timeline route
+- [x] remove residual sample-data fallback from history route
+- [x] remove residual sample-data fallback from users route
+- [x] bind deployment detail panel to live deployment and settings data
+- [x] expose activity audit data in `History & Audit` or split the screen into explicit deployment and audit sections
+- [x] remove campaigns route debug telemetry to `127.0.0.1:7777`
+- [x] replace hardcoded shell indicators such as notification count, environment badge, and version label or remove them from UX
+- [x] implement role-aware menu visibility
+- [x] implement role-aware mutation controls for campaigns, users, settings, and deployment actions
+- [x] rerun browser verification menu by menu after residual UI cleanup
+- [x] implement default wallpaper fallback when no campaign is active
 - [x] verify security controls
 - [x] finalize Docker Compose deployment guidance baseline
 
 ### Output
 
-- on-prem deployment package and operating guidance
+- on-prem deployment package, operating guidance, and a mock-free operator UI baseline
 
 ### Challenge / Verification
 
@@ -229,7 +251,55 @@ Prepare the product for operational deployment.
 - dashboard response baseline measured approximately `2087-2167 ms` across three authenticated runs in this workspace, which is close to but still above the PRD target of `< 2 seconds`
 - settings response baseline measured approximately `2094-2235 ms` across three authenticated runs in this workspace, which is acceptable for current MVP hardening evidence but indicates the runtime still needs optimization
 - deployment verify now returns a structured deployment result to the UI even when SMB validation fails, but the current environment still reports `the share is not valid`
+- default wallpaper fallback was implemented on 2026-07-23:
+  - admins can choose `defaultWallpaperId` from the Settings page
+  - deployment selection now follows `active campaign -> eligible scheduled campaign -> default wallpaper`
+  - expired active campaigns are auto-completed before fallback resolution
+  - deployment logs now support default wallpaper runs without an active campaign id
+  - deleting the configured default wallpaper is blocked
+  - browser verification confirmed an admin changed the default wallpaper, cancelled the last active campaign, triggered `Force redeploy`, and the latest deployment switched to `Default wallpaper` using the selected wallpaper
 - final dev-host preview recheck after the authenticated thumbnail bridge change was noisy because `localhost:8080` intermittently refused connections, but the database-only storage cleanup itself was validated through DB finalization, API access, and successful builds
 - residual release blockers are documented in this roadmap and supporting docs
 - production deployment baseline now assumes the existing PostgreSQL instance defined in `.env`
 - OpenAPI contract was updated in the same work item as the backend route and auth changes
+- UI audit on 2026-07-23 refined the remaining hardening backlog into menu-level frontend cleanup tasks recorded in `docs/ui-ux-wiring-audit.md`
+- follow-up implementation on 2026-07-23 removed the remaining UI fallback/mock patterns across Dashboard, Wallpapers, Campaigns, Timeline, Deployment, History, Users, and shell navigation
+- browser verification on 2026-07-23 confirmed:
+  - admin login works at the local dev host
+  - admin can create a Viewer user from the `Users` page
+  - Viewer sees only `Dashboard`, `Campaigns`, and `History & Audit`
+  - direct Viewer access to `/wallpapers` is denied with an explicit access message
+- lint and build rechecks on 2026-07-23 passed for `apps/web` after the UI cleanup; only pre-existing React Fast Refresh warnings remain in shared UI helper files
+
+### Detailed Small-Slice Backlog
+
+- Dashboard slice 1: completed
+- Dashboard slice 2: completed
+- Dashboard slice 3: completed
+- Dashboard slice 4: completed
+- Wallpapers slice 1: completed
+- Wallpapers slice 2: completed
+- Wallpapers slice 3: completed
+- Wallpapers slice 4: completed
+- Campaigns slice 1: completed
+- Campaigns slice 2: completed
+- Timeline slice 1: completed
+- Timeline slice 2: completed
+- Timeline slice 3: completed
+- Deployment slice 1: completed
+- Deployment slice 2: completed
+- Deployment slice 3: completed
+- History slice 1: completed
+- History slice 2: completed
+- History slice 3: completed
+- Users slice 1: completed
+- Users slice 2: completed
+- Users slice 3: completed
+- Shell slice 1: completed
+- Shell slice 2: completed
+- Shell slice 3: completed
+- Verification slice 1: completed
+- Verification slice 2: completed
+- Default wallpaper slice 1: completed
+- Default wallpaper slice 2: completed
+- Default wallpaper slice 3: completed

@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Upload, Search, MoreVertical, Download, Trash2, Eye } from "lucide-react";
+import { Upload, Search, Download, Trash2, Eye } from "lucide-react";
 import { toast } from "sonner";
 import { AppLayout } from "@/components/app-layout";
 import { Button } from "@/components/ui/button";
@@ -10,12 +10,14 @@ import { Badge } from "@/components/ui/badge";
 import {
   apiDelete,
   apiGet,
-  apiImageUrl,
   apiUpload,
+  buildApiUrl,
   formatBytes,
   getStoredSession,
 } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { canManageWallpapers } from "@/lib/roles";
+import { useProtectedImageUrls } from "@/lib/use-protected-image-urls";
 import {
   Dialog,
   DialogContent,
@@ -34,10 +36,6 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import type { WallpaperSummary } from "@cwcm/types";
-import safetyImg from "@/assets/wallpaper-safety.jpg";
-import independenceImg from "@/assets/wallpaper-independence.jpg";
-import anniversaryImg from "@/assets/wallpaper-anniversary.jpg";
-import christmasImg from "@/assets/wallpaper-christmas.jpg";
 
 export const Route = createFileRoute("/wallpapers")({
   head: () => ({
@@ -54,57 +52,6 @@ export const Route = createFileRoute("/wallpapers")({
   component: Page,
 });
 
-const items = [
-  {
-    img: safetyImg,
-    title: "Safety Awareness 2026",
-    file: "Safety_Awareness_2026.jpg",
-    res: "1920×1080",
-    size: "2.4 MB",
-    tag: "In use",
-  },
-  {
-    img: independenceImg,
-    title: "Independence Day",
-    file: "Independence_Day_2026.jpg",
-    res: "1920×1080",
-    size: "1.8 MB",
-    tag: "Scheduled",
-  },
-  {
-    img: anniversaryImg,
-    title: "Company Anniversary 25",
-    file: "Anniversary_25.jpg",
-    res: "1920×1080",
-    size: "2.1 MB",
-    tag: "Scheduled",
-  },
-  {
-    img: christmasImg,
-    title: "Christmas 2026",
-    file: "Christmas_2026.jpg",
-    res: "1920×1080",
-    size: "3.2 MB",
-    tag: "Scheduled",
-  },
-  {
-    img: safetyImg,
-    title: "Safety Week Q2",
-    file: "Safety_Q2.jpg",
-    res: "1920×1080",
-    size: "2.2 MB",
-    tag: "Draft",
-  },
-  {
-    img: independenceImg,
-    title: "National Heroes Day",
-    file: "Heroes_Day.jpg",
-    res: "1920×1080",
-    size: "1.9 MB",
-    tag: "Draft",
-  },
-];
-
 function tagColor(t: string) {
   if (t === "In use") return "bg-success-soft text-success";
   if (t === "Scheduled") return "bg-info-soft text-info";
@@ -112,16 +59,24 @@ function tagColor(t: string) {
 }
 
 function Page() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, session } = useAuth();
   const queryClient = useQueryClient();
   const inputRef = useRef<HTMLInputElement | null>(null);
-  const [previewUrls, setPreviewUrls] = useState<Record<string, string>>({});
   const [previewItem, setPreviewItem] = useState<WallpaperSummary | null>(null);
   const [deleteItem, setDeleteItem] = useState<WallpaperSummary | null>(null);
-  const { data } = useQuery({
+  const [search, setSearch] = useState("");
+  const [usageFilter, setUsageFilter] = useState<"ALL" | WallpaperSummary["usageStatus"]>("ALL");
+  const { data, isPending, error } = useQuery({
     queryKey: ["wallpapers"],
     queryFn: () => apiGet<{ items: WallpaperSummary[] }>("/wallpapers"),
     enabled: isAuthenticated,
+  });
+  const canManage = canManageWallpapers(session?.user.role);
+  const previewUrls = useProtectedImageUrls({
+    items: data?.items,
+    enabled: isAuthenticated,
+    getId: (item) => item.id,
+    getImageUrl: (item) => item.imageUrl,
   });
 
   const uploadMutation = useMutation({
@@ -133,6 +88,7 @@ function Page() {
     onSuccess: (wallpaper) => {
       queryClient.invalidateQueries({ queryKey: ["wallpapers"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["settings"] });
       toast.success(`Wallpaper "${wallpaper.title}" uploaded`);
     },
     onError: (error) => {
@@ -146,6 +102,7 @@ function Page() {
       setDeleteItem(null);
       queryClient.invalidateQueries({ queryKey: ["wallpapers"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["settings"] });
       toast.success("Wallpaper deleted");
     },
     onError: (error) => {
@@ -153,58 +110,22 @@ function Page() {
     },
   });
 
-  const rows =
-    data?.items ??
-    items.map((item) => ({
-      ...item,
-      sizeBytes: Number.parseFloat(item.size) * 1024 * 1024,
-      usageStatus:
-        item.tag === "In use" ? "IN_USE" : item.tag === "Scheduled" ? "SCHEDULED" : "DRAFT",
-    }));
-
-  useEffect(() => {
-    const liveWallpapers = data?.items;
-    if (!liveWallpapers?.length) {
-      return;
-    }
-
-    let revoked = false;
-    const allocatedUrls: string[] = [];
-
-    void Promise.all(
-      liveWallpapers.map(async (item) => {
-        const relativePath = item.imageUrl
-          .replace(/^https?:\/\/[^/]+\/api/, "")
-          .replace(/^\/api/, "");
-        const objectUrl = await apiImageUrl(relativePath);
-        allocatedUrls.push(objectUrl);
-        return [item.id, objectUrl] as const;
-      }),
-    )
-      .then((entries) => {
-        if (revoked) {
-          entries.forEach(([, url]) => URL.revokeObjectURL(url));
-          return;
-        }
-
-        setPreviewUrls(Object.fromEntries(entries));
-      })
-      .catch(() => {
-        if (!revoked) {
-          setPreviewUrls({});
-        }
-      });
-
-    return () => {
-      revoked = true;
-      allocatedUrls.forEach((url) => URL.revokeObjectURL(url));
-    };
-  }, [data?.items]);
+  const rows = useMemo(() => {
+    const liveRows = data?.items ?? [];
+    return liveRows.filter((item) => {
+      const matchesSearch =
+        !search ||
+        item.title.toLowerCase().includes(search.toLowerCase()) ||
+        item.filename.toLowerCase().includes(search.toLowerCase());
+      const matchesUsage = usageFilter === "ALL" || item.usageStatus === usageFilter;
+      return matchesSearch && matchesUsage;
+    });
+  }, [data?.items, search, usageFilter]);
 
   async function handleDownload(item: WallpaperSummary) {
     try {
       const session = getStoredSession();
-      const response = await fetch(`http://localhost:3000${item.imageUrl}`, {
+      const response = await fetch(buildApiUrl(item.imageUrl), {
         headers: session?.token ? { Authorization: `Bearer ${session.token}` } : undefined,
       });
 
@@ -227,6 +148,19 @@ function Page() {
     }
   }
 
+  if (!canManage) {
+    return (
+      <AppLayout
+        title="Wallpaper Library"
+        subtitle="Manage all wallpaper assets available for campaigns"
+      >
+        <div className="rounded-xl border border-dashed border-border bg-card px-6 py-10 text-sm text-muted-foreground">
+          Your role does not have access to the wallpaper library.
+        </div>
+      </AppLayout>
+    );
+  }
+
   return (
     <AppLayout
       title="Wallpaper Library"
@@ -235,113 +169,149 @@ function Page() {
       <div className="flex items-center gap-3 mb-6">
         <div className="relative flex-1 max-w-md">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input placeholder="Search wallpapers..." className="pl-9 bg-card" />
+          <Input
+            placeholder="Search wallpapers..."
+            className="pl-9 bg-card"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+          />
         </div>
-        <Button variant="outline">Filter</Button>
-        <div className="flex-1" />
-        <input
-          ref={inputRef}
-          type="file"
-          accept=".jpg,.jpeg,.png"
-          className="hidden"
-          onChange={(event) => {
-            const file = event.target.files?.[0];
-            if (file) uploadMutation.mutate(file);
-            event.target.value = "";
-          }}
-        />
-        <Button onClick={() => inputRef.current?.click()}>
-          <Upload className="h-4 w-4 mr-2" />
-          Upload Wallpaper
+        <Button
+          variant="outline"
+          onClick={() =>
+            setUsageFilter((current) =>
+              current === "ALL"
+                ? "IN_USE"
+                : current === "IN_USE"
+                  ? "SCHEDULED"
+                  : current === "SCHEDULED"
+                    ? "DRAFT"
+                    : "ALL",
+            )
+          }
+        >
+          Filter:{" "}
+          {usageFilter === "ALL"
+            ? "All"
+            : usageFilter === "IN_USE"
+              ? "In use"
+              : usageFilter === "SCHEDULED"
+                ? "Scheduled"
+                : "Draft"}
         </Button>
+        <div className="flex-1" />
+        {canManage ? (
+          <>
+            <input
+              ref={inputRef}
+              type="file"
+              accept=".jpg,.jpeg,.png"
+              className="hidden"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (file) uploadMutation.mutate(file);
+                event.target.value = "";
+              }}
+            />
+            <Button onClick={() => inputRef.current?.click()}>
+              <Upload className="h-4 w-4 mr-2" />
+              Upload Wallpaper
+            </Button>
+          </>
+        ) : null}
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
-        {rows.map((it, i) => (
-          <div key={i} className="rounded-xl border border-border bg-card overflow-hidden group">
-            <div className="relative aspect-video overflow-hidden bg-muted">
-              <img
-                src={"img" in it ? it.img : (previewUrls[it.id] ?? it.imageUrl)}
-                alt={it.title}
-                loading="lazy"
-                className="w-full h-full object-cover group-hover:scale-105 transition-transform"
-              />
-              <Badge
-                className={`absolute top-2 left-2 ${tagColor("usageStatus" in it ? (it.usageStatus === "IN_USE" ? "In use" : it.usageStatus === "SCHEDULED" ? "Scheduled" : "Draft") : it.tag)} hover:${tagColor("usageStatus" in it ? (it.usageStatus === "IN_USE" ? "In use" : it.usageStatus === "SCHEDULED" ? "Scheduled" : "Draft") : it.tag)}`}
-              >
-                {"usageStatus" in it
-                  ? it.usageStatus === "IN_USE"
+      {isPending ? (
+        <div className="text-sm text-muted-foreground">Loading wallpapers...</div>
+      ) : error ? (
+        <div className="text-sm text-destructive">
+          {error instanceof Error ? error.message : "Failed to load wallpapers."}
+        </div>
+      ) : rows.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-border bg-card px-6 py-10 text-sm text-muted-foreground">
+          {search || usageFilter !== "ALL"
+            ? "No wallpapers match the current search or filter."
+            : "No wallpapers uploaded yet."}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+          {rows.map((it) => (
+            <div
+              key={it.id}
+              className="rounded-xl border border-border bg-card overflow-hidden group"
+            >
+              <div className="relative aspect-video overflow-hidden bg-muted">
+                {previewUrls[it.id] ? (
+                  <img
+                    src={previewUrls[it.id]}
+                    alt={it.title}
+                    loading="lazy"
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-sm text-muted-foreground">
+                    Loading preview...
+                  </div>
+                )}
+                <Badge
+                  className={`absolute top-2 left-2 ${tagColor(it.usageStatus === "IN_USE" ? "In use" : it.usageStatus === "SCHEDULED" ? "Scheduled" : "Draft")} hover:${tagColor(it.usageStatus === "IN_USE" ? "In use" : it.usageStatus === "SCHEDULED" ? "Scheduled" : "Draft")}`}
+                >
+                  {it.usageStatus === "IN_USE"
                     ? "In use"
                     : it.usageStatus === "SCHEDULED"
                       ? "Scheduled"
-                      : "Draft"
-                  : it.tag}
-              </Badge>
-            </div>
-            <div className="p-4">
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <div className="font-semibold text-sm truncate">{it.title}</div>
-                  <div className="text-xs text-muted-foreground truncate">
-                    {"filename" in it ? it.filename : it.file}
+                      : "Draft"}
+                </Badge>
+                {it.isDefault ? (
+                  <Badge className="absolute top-2 right-2 bg-primary/10 text-primary hover:bg-primary/10">
+                    Default
+                  </Badge>
+                ) : null}
+              </div>
+              <div className="p-4">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="font-semibold text-sm truncate">{it.title}</div>
+                    <div className="text-xs text-muted-foreground truncate">{it.filename}</div>
                   </div>
                 </div>
-                <button className="text-muted-foreground hover:text-foreground">
-                  <MoreVertical className="h-4 w-4" />
-                </button>
-              </div>
-              <div className="flex items-center gap-3 text-xs text-muted-foreground mt-3">
-                <span>{"resolution" in it ? `${it.width}×${it.height}` : it.res}</span>
-                <span>•</span>
-                <span>{"sizeBytes" in it ? formatBytes(it.sizeBytes) : it.size}</span>
-              </div>
-              <div className="flex items-center gap-2 mt-4">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="flex-1"
-                  onClick={() => {
-                    if ("id" in it) {
+                <div className="flex items-center gap-3 text-xs text-muted-foreground mt-3">
+                  <span>{`${it.width}×${it.height}`}</span>
+                  <span>•</span>
+                  <span>{formatBytes(it.sizeBytes)}</span>
+                </div>
+                <div className="flex items-center gap-2 mt-4">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="flex-1"
+                    onClick={() => {
                       setPreviewItem(it);
-                      return;
-                    }
-                    toast.info("Preview is available for live wallpapers only");
-                  }}
-                >
-                  <Eye className="h-3.5 w-3.5 mr-1.5" />
-                  Preview
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => {
-                    if ("id" in it) {
+                    }}
+                  >
+                    <Eye className="h-3.5 w-3.5 mr-1.5" />
+                    Preview
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
                       void handleDownload(it);
-                      return;
-                    }
-                    toast.info("Download is available for live wallpapers only");
-                  }}
-                >
-                  <Download className="h-3.5 w-3.5" />
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => {
-                    if ("id" in it) {
-                      setDeleteItem(it);
-                      return;
-                    }
-                    toast.info("Delete is available for live wallpapers only");
-                  }}
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </Button>
+                    }}
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                  </Button>
+                  {canManage ? (
+                    <Button size="sm" variant="outline" onClick={() => setDeleteItem(it)}>
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  ) : null}
+                </div>
               </div>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
 
       <Dialog open={Boolean(previewItem)} onOpenChange={(open) => !open && setPreviewItem(null)}>
         <DialogContent className="max-w-4xl">
@@ -363,7 +333,10 @@ function Page() {
         </DialogContent>
       </Dialog>
 
-      <AlertDialog open={Boolean(deleteItem)} onOpenChange={(open) => !open && setDeleteItem(null)}>
+      <AlertDialog
+        open={Boolean(deleteItem) && canManage}
+        onOpenChange={(open) => !open && setDeleteItem(null)}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete wallpaper?</AlertDialogTitle>

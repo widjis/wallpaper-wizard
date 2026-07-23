@@ -26,15 +26,20 @@ Deliver an on-premise TypeScript-based system that:
 
 ## Current Repository Assessment
 
-The repository currently contains a frontend prototype for the administrative portal. It does not yet include:
+The repository now contains an implemented MVP foundation with:
 
-- the required monorepo structure
-- a backend API
-- persistence and database schema implementation
-- authentication and RBAC enforcement
-- queue and scheduler implementation
-- SMB / SYSVOL deployment integration
-- Docker Compose runtime
+- a monorepo structure under `apps/` and `packages/`
+- a Fastify API backed by Prisma and PostgreSQL
+- local authentication, protected API routes, and web session handling
+- campaign, wallpaper, queue, deployment, user, dashboard, and settings endpoints
+- Docker Compose baseline for web, api, and redis
+
+The repository still does not yet fully include:
+
+- full RBAC enforcement across UI and backend actions
+- recurring production scheduler workers with Redis / BullMQ
+- target-environment validated SMB / SYSVOL deployment
+- fully mock-free frontend presentation across every menu
 
 See `docs/existing-project-gap-analysis.md` for the detailed audit.
 
@@ -92,4 +97,4 @@ The project is considered ready when:
 
 ## Immediate Next Step
 
-Treat the current active phase as a documentation and architecture baseline phase before implementing new product logic.
+Treat the current active phase as hardening plus residual UI wiring cleanup, using `docs/ui-ux-wiring-audit.md` and `docs/implementation-roadmap.md` to drive the next small-slice implementation work.

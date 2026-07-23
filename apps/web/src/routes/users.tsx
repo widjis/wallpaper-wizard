@@ -8,6 +8,8 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
+import { useAuth } from "@/lib/auth";
+import { isAdministrator } from "@/lib/roles";
 import {
   Table,
   TableBody,
@@ -47,44 +49,6 @@ export const Route = createFileRoute("/users")({
   component: Page,
 });
 
-const users = [
-  {
-    name: "Widji",
-    email: "widji@corp.intra.local",
-    role: "Administrator",
-    last: "23 Jul 2026 07:58",
-    status: "Active",
-  },
-  {
-    name: "Rian Pratama",
-    email: "rian@corp.intra.local",
-    role: "Operator",
-    last: "22 Jul 2026 16:14",
-    status: "Active",
-  },
-  {
-    name: "Dewi Lestari",
-    email: "dewi@corp.intra.local",
-    role: "Operator",
-    last: "21 Jul 2026 09:02",
-    status: "Active",
-  },
-  {
-    name: "Andi Kurniawan",
-    email: "andi@corp.intra.local",
-    role: "Viewer",
-    last: "18 Jul 2026 11:23",
-    status: "Active",
-  },
-  {
-    name: "Sinta Ayu",
-    email: "sinta@corp.intra.local",
-    role: "Viewer",
-    last: "—",
-    status: "Disabled",
-  },
-];
-
 function roleColor(r: string) {
   if (r === "Administrator") return "bg-primary-soft text-primary";
   if (r === "Operator") return "bg-info-soft text-info";
@@ -93,6 +57,7 @@ function roleColor(r: string) {
 
 function Page() {
   const queryClient = useQueryClient();
+  const { session } = useAuth();
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
@@ -103,10 +68,11 @@ function Page() {
     role: "OPERATOR",
     isActive: true,
   });
-  const { data } = useQuery({
+  const { data, isPending, error } = useQuery({
     queryKey: ["users"],
     queryFn: () => apiGet<{ items: UserSummary[] }>("/users"),
   });
+  const canManage = isAdministrator(session?.user.role);
 
   const createMutation = useMutation({
     mutationFn: (payload: UserMutationPayload) =>
@@ -158,17 +124,11 @@ function Page() {
       data?.items.map((user) => ({
         id: user.id,
         name: user.username,
-        email: `${user.username.toLowerCase().replace(/\s+/g, ".")}@corp.intra.local`,
         role: user.role.charAt(0) + user.role.slice(1).toLowerCase(),
         roleValue: user.role,
         last: formatDateTime(user.lastLoginAt),
         status: user.isActive ? "Active" : "Disabled",
-      })) ??
-      users.map((user, index) => ({
-        ...user,
-        id: `sample-${index}`,
-        roleValue: "VIEWER" as const,
-      })),
+      })) ?? [],
     [data?.items],
   );
 
@@ -178,9 +138,7 @@ function Page() {
         if (!search) return true;
         const keyword = search.toLowerCase();
         return (
-          user.name.toLowerCase().includes(keyword) ||
-          user.email.toLowerCase().includes(keyword) ||
-          user.role.toLowerCase().includes(keyword)
+          user.name.toLowerCase().includes(keyword) || user.role.toLowerCase().includes(keyword)
         );
       }),
     [rows, search],
@@ -197,6 +155,16 @@ function Page() {
     });
   }
 
+  if (!canManage) {
+    return (
+      <AppLayout title="Users" subtitle="Manage portal access and roles">
+        <div className="rounded-xl border border-dashed border-border bg-card px-6 py-10 text-sm text-muted-foreground">
+          Your role does not have access to user administration.
+        </div>
+      </AppLayout>
+    );
+  }
+
   return (
     <AppLayout title="Users" subtitle="Manage portal access and roles">
       <div className="flex items-center gap-3 mb-6">
@@ -210,22 +178,24 @@ function Page() {
           />
         </div>
         <div className="flex-1" />
-        <Button
-          onClick={() => {
-            if (showForm && !editingUserId) {
-              resetForm();
-              return;
-            }
-            setShowForm(true);
-            setEditingUserId(null);
-          }}
-        >
-          <UserPlus className="h-4 w-4 mr-2" />
-          Add user
-        </Button>
+        {canManage ? (
+          <Button
+            onClick={() => {
+              if (showForm && !editingUserId) {
+                resetForm();
+                return;
+              }
+              setShowForm(true);
+              setEditingUserId(null);
+            }}
+          >
+            <UserPlus className="h-4 w-4 mr-2" />
+            Add user
+          </Button>
+        ) : null}
       </div>
 
-      {showForm ? (
+      {showForm && canManage ? (
         <div className="rounded-xl border border-border bg-card p-5 mb-6 grid grid-cols-1 md:grid-cols-2 gap-4">
           <Field
             label="Username"
@@ -292,13 +262,11 @@ function Page() {
           </div>
         </div>
       ) : null}
-
       <div className="rounded-xl border border-border bg-card overflow-hidden">
         <Table>
           <TableHeader>
             <TableRow>
               <TableHead>Name</TableHead>
-              <TableHead>Email</TableHead>
               <TableHead>Role</TableHead>
               <TableHead>Last login</TableHead>
               <TableHead>Status</TableHead>
@@ -306,72 +274,88 @@ function Page() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filteredRows.map((u) => (
-              <TableRow key={u.email}>
-                <TableCell>
-                  <div className="flex items-center gap-3">
-                    <div className="h-8 w-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-semibold">
-                      {u.name.charAt(0)}
-                    </div>
-                    <span className="font-medium">{u.name}</span>
-                  </div>
-                </TableCell>
-                <TableCell className="text-muted-foreground">{u.email}</TableCell>
-                <TableCell>
-                  <Badge className={`${roleColor(u.role)} hover:${roleColor(u.role)}`}>
-                    {u.role}
-                  </Badge>
-                </TableCell>
-                <TableCell className="text-muted-foreground">{u.last}</TableCell>
-                <TableCell>
-                  {u.status === "Active" ? (
-                    <span className="inline-flex items-center gap-1.5 text-sm">
-                      <span className="h-1.5 w-1.5 rounded-full bg-success" />
-                      Active
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
-                      <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground" />
-                      Disabled
-                    </span>
-                  )}
-                </TableCell>
-                <TableCell className="text-right">
-                  <div className="flex items-center justify-end gap-1">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => {
-                        if (!data?.items) {
-                          toast.info("Edit is available for live users only");
-                          return;
-                        }
-                        const live = data.items.find((item) => item.id === u.id);
-                        if (!live) return;
-                        setEditingUserId(live.id);
-                        setShowForm(true);
-                        setForm({
-                          username: live.username,
-                          password: "",
-                          role: live.role,
-                          isActive: live.isActive,
-                        });
-                      }}
-                    >
-                      Edit
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => setDeleteUserId(u.id)}
-                      disabled={!data?.items}
-                    >
-                      Delete
-                    </Button>
-                  </div>
+            {isPending ? (
+              <TableRow>
+                <TableCell colSpan={5} className="py-10 text-center text-muted-foreground">
+                  Loading users...
                 </TableCell>
               </TableRow>
-            ))}
+            ) : error ? (
+              <TableRow>
+                <TableCell colSpan={5} className="py-10 text-center text-destructive">
+                  {error instanceof Error ? error.message : "Failed to load users."}
+                </TableCell>
+              </TableRow>
+            ) : filteredRows.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={5} className="py-10 text-center text-muted-foreground">
+                  {search ? "No users match the current search." : "No users available yet."}
+                </TableCell>
+              </TableRow>
+            ) : (
+              filteredRows.map((u) => (
+                <TableRow key={u.id}>
+                  <TableCell>
+                    <div className="flex items-center gap-3">
+                      <div className="h-8 w-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-semibold">
+                        {u.name.charAt(0)}
+                      </div>
+                      <span className="font-medium">{u.name}</span>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <Badge className={`${roleColor(u.role)} hover:${roleColor(u.role)}`}>
+                      {u.role}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">{u.last}</TableCell>
+                  <TableCell>
+                    {u.status === "Active" ? (
+                      <span className="inline-flex items-center gap-1.5 text-sm">
+                        <span className="h-1.5 w-1.5 rounded-full bg-success" />
+                        Active
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
+                        <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground" />
+                        Disabled
+                      </span>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex items-center justify-end gap-1">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => {
+                          const live = data?.items?.find((item) => item.id === u.id);
+                          if (!live) return;
+                          setEditingUserId(live.id);
+                          setShowForm(true);
+                          setForm({
+                            username: live.username,
+                            password: "",
+                            role: live.role,
+                            isActive: live.isActive,
+                          });
+                        }}
+                        disabled={!canManage}
+                      >
+                        Edit
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setDeleteUserId(u.id)}
+                        disabled={!canManage}
+                      >
+                        Delete
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
           </TableBody>
         </Table>
       </div>

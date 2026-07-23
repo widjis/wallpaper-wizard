@@ -51,6 +51,171 @@ function rangesOverlap(
   return aStart.getTime() <= bEnd.getTime() && bStart.getTime() <= aEnd.getTime();
 }
 
+function mapDeploymentSourceType(campaignId: string | null): DeploymentLogItem["sourceType"] {
+  return campaignId ? "CAMPAIGN" : "DEFAULT_WALLPAPER";
+}
+
+function buildDeploymentResponse(
+  item: Prisma.DeploymentLogGetPayload<{
+    include: {
+      campaign: true;
+      wallpaper: true;
+    };
+  }>,
+  operatorOverride?: string,
+): DeploymentLogItem {
+  return {
+    id: item.id,
+    campaignId: item.campaignId,
+    campaignName: item.campaign?.name ?? "Default wallpaper",
+    wallpaperId: item.wallpaperId,
+    wallpaperTitle: item.wallpaper.title,
+    wallpaperImageUrl: buildWallpaperImageUrl(item.wallpaperId),
+    startedAt: item.startedAt.toISOString(),
+    finishedAt: item.finishedAt?.toISOString() ?? null,
+    durationSeconds: item.durationMs ? Math.round(item.durationMs / 1000) : null,
+    result: mapDeploymentResult(item.result),
+    sourceType: mapDeploymentSourceType(item.campaignId),
+    triggerSource: item.triggerSource,
+    operator:
+      operatorOverride ?? (item.triggerSource === TriggerSource.MANUAL ? "Widji" : "scheduler"),
+    message: item.message,
+    targetPath: item.targetPath,
+    targetFilename: item.targetFilename,
+    verifiedExists: item.verifiedExists,
+    verifiedSizeBytes: item.verifiedSizeBytes,
+    verifiedChecksumSha256: item.verifiedChecksumSha256,
+  };
+}
+
+async function completeExpiredActiveCampaigns(now: Date, actor: string) {
+  const expiredCampaigns = await prisma.campaign.findMany({
+    where: {
+      status: CampaignStatus.ACTIVE,
+      endDate: { lt: now },
+    },
+  });
+
+  if (!expiredCampaigns.length) {
+    return;
+  }
+
+  const expiredIds = expiredCampaigns.map((campaign) => campaign.id);
+
+  await prisma.$transaction([
+    prisma.campaign.updateMany({
+      where: {
+        id: { in: expiredIds },
+      },
+      data: {
+        status: CampaignStatus.COMPLETED,
+        completedAt: now,
+      },
+    }),
+    prisma.campaignQueueEntry.deleteMany({
+      where: {
+        campaignId: { in: expiredIds },
+      },
+    }),
+    prisma.activityLog.createMany({
+      data: expiredCampaigns.map((campaign) => ({
+        actor,
+        action: "campaign.completed",
+        detail: campaign.name,
+      })),
+    }),
+  ]);
+}
+
+async function resolveDeploymentSource(actor: string) {
+  const now = new Date();
+
+  await completeExpiredActiveCampaigns(now, actor);
+
+  const activeCampaign = await prisma.campaign.findFirst({
+    where: {
+      status: CampaignStatus.ACTIVE,
+      OR: [{ endDate: null }, { endDate: { gte: now } }],
+    },
+    include: { wallpaper: true },
+    orderBy: [{ priority: "desc" }, { startDate: "asc" }],
+  });
+
+  if (activeCampaign) {
+    return {
+      campaignId: activeCampaign.id,
+      campaignName: activeCampaign.name,
+      wallpaper: activeCampaign.wallpaper,
+      activityDetail: activeCampaign.name,
+    };
+  }
+
+  const scheduledCampaign = await prisma.campaign.findFirst({
+    where: {
+      status: CampaignStatus.SCHEDULED,
+      AND: [
+        {
+          OR: [{ startDate: null }, { startDate: { lte: now } }],
+        },
+        {
+          OR: [{ endDate: null }, { endDate: { gte: now } }],
+        },
+      ],
+    },
+    include: { wallpaper: true },
+    orderBy: [{ priority: "desc" }, { startDate: "asc" }],
+  });
+
+  if (scheduledCampaign) {
+    const activated = await prisma.campaign.update({
+      where: { id: scheduledCampaign.id },
+      data: {
+        status: CampaignStatus.ACTIVE,
+        activatedAt: now,
+      },
+      include: { wallpaper: true },
+    });
+
+    await prisma.activityLog.create({
+      data: {
+        actor,
+        action: "campaign.activated",
+        detail: activated.name,
+      },
+    });
+
+    return {
+      campaignId: activated.id,
+      campaignName: activated.name,
+      wallpaper: activated.wallpaper,
+      activityDetail: activated.name,
+    };
+  }
+
+  const settings = await getSettings();
+  if (!settings.defaultWallpaperId) {
+    throw new Error("No active campaign and no default wallpaper configured");
+  }
+
+  const defaultWallpaper = await prisma.wallpaper.findFirst({
+    where: {
+      id: settings.defaultWallpaperId,
+      deletedAt: null,
+    },
+  });
+
+  if (!defaultWallpaper) {
+    throw new Error("Configured default wallpaper not found");
+  }
+
+  return {
+    campaignId: null,
+    campaignName: "Default wallpaper",
+    wallpaper: defaultWallpaper,
+    activityDetail: `Default wallpaper: ${defaultWallpaper.title}`,
+  };
+}
+
 export async function loginWithLocalAuth(
   username: string,
   password: string,
@@ -249,6 +414,7 @@ export async function deleteUserRecord(payload: {
 }
 
 export async function listWallpapers(): Promise<WallpaperSummary[]> {
+  const settings = await getSettings();
   const wallpapers = await prisma.wallpaper.findMany({
     where: { deletedAt: null },
     include: {
@@ -271,6 +437,7 @@ export async function listWallpapers(): Promise<WallpaperSummary[]> {
     mimeType: wallpaper.mimeType,
     imageUrl: buildWallpaperImageUrl(wallpaper.id),
     uploadedAt: wallpaper.uploadedAt.toISOString(),
+    isDefault: settings.defaultWallpaperId === wallpaper.id,
     usageStatus: wallpaper.campaigns.some((campaign) => campaign.status === CampaignStatus.ACTIVE)
       ? "IN_USE"
       : wallpaper.campaigns.some((campaign) => campaign.status === CampaignStatus.SCHEDULED)
@@ -330,6 +497,7 @@ export async function createWallpaperRecord(payload: {
     mimeType: wallpaper.mimeType,
     imageUrl: buildWallpaperImageUrl(wallpaper.id),
     uploadedAt: wallpaper.uploadedAt.toISOString(),
+    isDefault: false,
     usageStatus: "DRAFT",
   };
 }
@@ -356,6 +524,11 @@ export async function deleteWallpaperRecord(payload: {
 
   if (!wallpaper) {
     throw new Error("Wallpaper not found");
+  }
+
+  const settings = await getSettings();
+  if (settings.defaultWallpaperId === wallpaper.id) {
+    throw new Error("Wallpaper is configured as the default wallpaper");
   }
 
   if (wallpaper.campaigns.length > 0) {
@@ -389,6 +562,7 @@ export async function listCampaigns(): Promise<CampaignSummary[]> {
     name: campaign.name,
     wallpaperId: campaign.wallpaperId,
     wallpaperTitle: campaign.wallpaper.title,
+    wallpaperImageUrl: buildWallpaperImageUrl(campaign.wallpaperId),
     description: campaign.description,
     startDate: campaign.startDate?.toISOString() ?? null,
     endDate: campaign.endDate?.toISOString() ?? null,
@@ -469,6 +643,7 @@ export async function createCampaignRecord(payload: {
     name: campaign.name,
     wallpaperId: campaign.wallpaperId,
     wallpaperTitle: campaign.wallpaper.title,
+    wallpaperImageUrl: buildWallpaperImageUrl(campaign.wallpaperId),
     description: campaign.description,
     startDate: campaign.startDate?.toISOString() ?? null,
     endDate: campaign.endDate?.toISOString() ?? null,
@@ -551,6 +726,7 @@ export async function updateCampaignRecord(payload: {
     name: campaign.name,
     wallpaperId: campaign.wallpaperId,
     wallpaperTitle: campaign.wallpaper.title,
+    wallpaperImageUrl: buildWallpaperImageUrl(campaign.wallpaperId),
     description: campaign.description,
     startDate: campaign.startDate?.toISOString() ?? null,
     endDate: campaign.endDate?.toISOString() ?? null,
@@ -647,6 +823,7 @@ export async function duplicateCampaignRecord(payload: {
     name: duplicated.name,
     wallpaperId: duplicated.wallpaperId,
     wallpaperTitle: duplicated.wallpaper.title,
+    wallpaperImageUrl: buildWallpaperImageUrl(duplicated.wallpaperId),
     description: duplicated.description,
     startDate: duplicated.startDate?.toISOString() ?? null,
     endDate: duplicated.endDate?.toISOString() ?? null,
@@ -701,6 +878,7 @@ export async function activateCampaignRecord(payload: {
     name: activated.name,
     wallpaperId: activated.wallpaperId,
     wallpaperTitle: activated.wallpaper.title,
+    wallpaperImageUrl: buildWallpaperImageUrl(activated.wallpaperId),
     description: activated.description,
     startDate: activated.startDate?.toISOString() ?? null,
     endDate: activated.endDate?.toISOString() ?? null,
@@ -748,6 +926,7 @@ export async function cancelCampaignRecord(payload: {
     name: cancelled.name,
     wallpaperId: cancelled.wallpaperId,
     wallpaperTitle: cancelled.wallpaper.title,
+    wallpaperImageUrl: buildWallpaperImageUrl(cancelled.wallpaperId),
     description: cancelled.description,
     startDate: cancelled.startDate?.toISOString() ?? null,
     endDate: cancelled.endDate?.toISOString() ?? null,
@@ -859,42 +1038,19 @@ export async function listDeployments(): Promise<DeploymentLogItem[]> {
   const items = await prisma.deploymentLog.findMany({
     include: {
       campaign: true,
+      wallpaper: true,
     },
     orderBy: { startedAt: "desc" },
   });
 
-  return items.map((item) => ({
-    id: item.id,
-    campaignId: item.campaignId,
-    campaignName: item.campaign.name,
-    startedAt: item.startedAt.toISOString(),
-    finishedAt: item.finishedAt?.toISOString() ?? null,
-    durationSeconds: item.durationMs ? Math.round(item.durationMs / 1000) : null,
-    result: mapDeploymentResult(item.result),
-    operator: item.triggerSource === TriggerSource.MANUAL ? "Widji" : "scheduler",
-    message: item.message,
-  }));
+  return items.map((item) => buildDeploymentResponse(item));
 }
 
 export async function createDeploymentRecord(payload: {
   triggerSource: TriggerSource;
   operator: string;
 }): Promise<DeploymentLogItem> {
-  const activeCampaign =
-    (await prisma.campaign.findFirst({
-      where: { status: CampaignStatus.ACTIVE },
-      include: { wallpaper: true },
-      orderBy: { priority: "desc" },
-    })) ??
-    (await prisma.campaign.findFirst({
-      include: { wallpaper: true },
-      orderBy: { startDate: "asc" },
-    }));
-
-  if (!activeCampaign) {
-    throw new Error("No campaign available for deployment");
-  }
-
+  const source = await resolveDeploymentSource(payload.operator);
   const settings = await getSettings();
 
   const startedAt = new Date();
@@ -902,22 +1058,26 @@ export async function createDeploymentRecord(payload: {
 
   const deployment = await prisma.deploymentLog.create({
     data: {
-      campaignId: activeCampaign.id,
-      wallpaperId: activeCampaign.wallpaperId,
+      campaignId: source.campaignId,
+      wallpaperId: source.wallpaper.id,
       triggerSource: payload.triggerSource,
       startedAt,
       finishedAt,
       durationMs: 15000,
       result: DeploymentResult.SUCCESS,
-      message: `Deployment accepted through ${payload.triggerSource.toLowerCase()} trigger.`,
+      message:
+        source.campaignId === null
+          ? `Deployment accepted through ${payload.triggerSource.toLowerCase()} trigger using default wallpaper.`
+          : `Deployment accepted through ${payload.triggerSource.toLowerCase()} trigger.`,
       targetPath: settings.sysvolPath,
       targetFilename: settings.wallpaperFilename,
       verifiedExists: true,
-      verifiedSizeBytes: activeCampaign.wallpaper.sizeBytes,
-      verifiedChecksumSha256: activeCampaign.wallpaper.checksumSha256,
+      verifiedSizeBytes: source.wallpaper.sizeBytes,
+      verifiedChecksumSha256: source.wallpaper.checksumSha256,
     },
     include: {
       campaign: true,
+      wallpaper: true,
     },
   });
 
@@ -925,21 +1085,11 @@ export async function createDeploymentRecord(payload: {
     data: {
       actor: payload.operator,
       action: "deployment.triggered",
-      detail: activeCampaign.name,
+      detail: source.activityDetail,
     },
   });
 
-  return {
-    id: deployment.id,
-    campaignId: deployment.campaignId,
-    campaignName: deployment.campaign.name,
-    startedAt: deployment.startedAt.toISOString(),
-    finishedAt: deployment.finishedAt?.toISOString() ?? null,
-    durationSeconds: deployment.durationMs ? Math.round(deployment.durationMs / 1000) : null,
-    result: mapDeploymentResult(deployment.result),
-    operator: payload.operator,
-    message: deployment.message,
-  };
+  return buildDeploymentResponse(deployment, payload.operator);
 }
 
 export async function verifyDeploymentRecord(deploymentId: string): Promise<DeploymentLogItem> {
@@ -948,20 +1098,10 @@ export async function verifyDeploymentRecord(deploymentId: string): Promise<Depl
     data: {
       message: "Verification re-run requested.",
     },
-    include: { campaign: true },
+    include: { campaign: true, wallpaper: true },
   });
 
-  return {
-    id: deployment.id,
-    campaignId: deployment.campaignId,
-    campaignName: deployment.campaign.name,
-    startedAt: deployment.startedAt.toISOString(),
-    finishedAt: deployment.finishedAt?.toISOString() ?? null,
-    durationSeconds: deployment.durationMs ? Math.round(deployment.durationMs / 1000) : null,
-    result: mapDeploymentResult(deployment.result),
-    operator: deployment.triggerSource === TriggerSource.MANUAL ? "Widji" : "scheduler",
-    message: deployment.message,
-  };
+  return buildDeploymentResponse(deployment);
 }
 
 export async function getDeploymentDetail(deploymentId: string) {
@@ -1013,20 +1153,11 @@ export async function finalizeDeploymentRecord(payload: {
     },
     include: {
       campaign: true,
+      wallpaper: true,
     },
   });
 
-  return {
-    id: deployment.id,
-    campaignId: deployment.campaignId,
-    campaignName: deployment.campaign.name,
-    startedAt: deployment.startedAt.toISOString(),
-    finishedAt: deployment.finishedAt?.toISOString() ?? null,
-    durationSeconds: deployment.durationMs ? Math.round(deployment.durationMs / 1000) : null,
-    result: mapDeploymentResult(deployment.result),
-    operator: deployment.triggerSource === TriggerSource.MANUAL ? "Widji" : "scheduler",
-    message: deployment.message,
-  };
+  return buildDeploymentResponse(deployment);
 }
 
 export async function listActivityLogs(): Promise<ActivityLogItem[]> {
@@ -1053,6 +1184,7 @@ export async function getSettings(): Promise<AppSettings> {
     wallpaperFilename: parseSetting<string>(
       map.get("wallpaperFilename") ?? JSON.stringify("Wallpaper.jpg"),
     ),
+    defaultWallpaperId: parseSetting<string | null>(map.get("defaultWallpaperId") ?? "null"),
     storageLocation: parseSetting<string>(
       map.get("storageLocation") ?? JSON.stringify(appConfig.APP_STORAGE_PATH),
     ),
@@ -1076,6 +1208,19 @@ export async function updateSettingsRecord(
   payload: AppSettings,
   updatedById?: string,
 ): Promise<AppSettings> {
+  if (payload.defaultWallpaperId) {
+    const wallpaper = await prisma.wallpaper.findFirst({
+      where: {
+        id: payload.defaultWallpaperId,
+        deletedAt: null,
+      },
+    });
+
+    if (!wallpaper) {
+      throw new Error("Default wallpaper not found");
+    }
+  }
+
   const entries = Object.entries(payload);
   await prisma.$transaction(
     entries.map(([key, value]) =>
@@ -1105,6 +1250,14 @@ export async function buildDashboardSummary(): Promise<DashboardSummary> {
     getSettings(),
     getQueueState(),
   ]);
+  const defaultWallpaper = settings.defaultWallpaperId
+    ? await prisma.wallpaper.findFirst({
+        where: {
+          id: settings.defaultWallpaperId,
+          deletedAt: null,
+        },
+      })
+    : null;
 
   const currentCampaign = campaigns.find((campaign) => campaign.status === "ACTIVE") ?? null;
   const nextCampaign = campaigns.find((campaign) => campaign.status === "SCHEDULED") ?? null;
@@ -1136,6 +1289,8 @@ export async function buildDashboardSummary(): Promise<DashboardSummary> {
       sysvolPath: settings.sysvolPath,
       wallpaperFilename: settings.wallpaperFilename,
       serverTime: new Date().toISOString(),
+      defaultWallpaperId: settings.defaultWallpaperId,
+      defaultWallpaperTitle: defaultWallpaper?.title ?? null,
     },
   };
 }

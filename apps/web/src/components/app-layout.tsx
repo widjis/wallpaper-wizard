@@ -8,14 +8,12 @@ import {
   History,
   Users,
   Settings,
-  Bell,
-  HelpCircle,
   ChevronDown,
-  Circle,
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
+import { getVisibleNav } from "@/lib/roles";
 
 const nav = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -40,6 +38,10 @@ export function AppLayout({
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const navigate = useNavigate();
   const { session, logout } = useAuth();
+  const visibleNav = getVisibleNav(session?.user.role).map((item) => ({
+    ...item,
+    icon: nav.find((entry) => entry.to === item.to)?.icon ?? LayoutDashboard,
+  }));
 
   return (
     <div className="min-h-screen bg-background text-foreground flex">
@@ -69,7 +71,7 @@ export function AppLayout({
         </div>
 
         <nav className="flex-1 px-3 py-4 space-y-1">
-          {nav.map((item) => {
+          {visibleNav.map((item) => {
             const active = item.to === "/" ? pathname === "/" : pathname.startsWith(item.to);
             const Icon = item.icon;
             return (
@@ -112,11 +114,9 @@ export function AppLayout({
               Logout
             </button>
           </div>
-          <div className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-xs">
-            <Circle className="h-2 w-2 fill-success text-success" />
-            <span className="text-foreground">corp.intra.local</span>
+          <div className="text-[11px] text-muted-foreground">
+            Access reflects your current role permissions.
           </div>
-          <div className="text-[11px] text-muted-foreground">v1.0.0</div>
         </div>
       </aside>
 
@@ -127,15 +127,6 @@ export function AppLayout({
             <h1 className="text-xl font-bold text-foreground leading-tight">{title}</h1>
             {subtitle && <p className="text-xs text-muted-foreground">{subtitle}</p>}
           </div>
-          <button className="relative h-9 w-9 rounded-md hover:bg-muted flex items-center justify-center text-muted-foreground">
-            <Bell className="h-5 w-5" />
-            <span className="absolute -top-0.5 -right-0.5 h-4 w-4 rounded-full bg-destructive text-destructive-foreground text-[10px] font-semibold flex items-center justify-center">
-              3
-            </span>
-          </button>
-          <button className="h-9 w-9 rounded-md hover:bg-muted flex items-center justify-center text-muted-foreground">
-            <HelpCircle className="h-5 w-5" />
-          </button>
           <div className="flex items-center gap-3 pl-3 border-l border-border">
             <div className="h-9 w-9 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-sm font-semibold">
               W

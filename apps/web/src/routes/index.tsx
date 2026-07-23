@@ -1,13 +1,10 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import {
   Flag,
   Calendar,
   Activity,
   CheckCircle2,
-  Upload,
-  CalendarPlus,
-  UserRound,
   FolderClosed,
   Image as ImageIcon,
   Clock,
@@ -21,11 +18,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { apiGet, formatDateTime } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import type { DashboardSummary } from "@cwcm/types";
-import safetyImg from "@/assets/wallpaper-safety.jpg";
-import independenceImg from "@/assets/wallpaper-independence.jpg";
-import anniversaryImg from "@/assets/wallpaper-anniversary.jpg";
-import christmasImg from "@/assets/wallpaper-christmas.jpg";
+import { useProtectedImageUrls } from "@/lib/use-protected-image-urls";
+import type { CampaignSummary, DashboardSummary } from "@cwcm/types";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -47,61 +41,21 @@ export const Route = createFileRoute("/")({
   component: Dashboard,
 });
 
-const upcoming = [
-  { name: "Independence Day", starts: "1 Aug 2026", in: "In 9 days", img: independenceImg },
-  { name: "Company Anniversary", starts: "1 Sep 2026", in: "In 40 days", img: anniversaryImg },
-  { name: "Christmas 2026", starts: "20 Dec 2026", in: "In 150 days", img: christmasImg },
-];
-
-const activity = [
-  {
-    icon: Upload,
-    title: "Wallpaper uploaded",
-    detail: "Independence_Day_2026.jpg",
-    date: "23 Jul 2026",
-    time: "10:15",
-  },
-  {
-    icon: CalendarPlus,
-    title: "Campaign scheduled",
-    detail: "Independence Day",
-    date: "23 Jul 2026",
-    time: "10:10",
-  },
-  {
-    icon: CheckCircle2,
-    title: "Deployment completed",
-    detail: "Safety Awareness 2026",
-    date: "23 Jul 2026",
-    time: "08:00",
-  },
-  {
-    icon: UserRound,
-    title: "User login",
-    detail: "Widji (Administrator)",
-    date: "23 Jul 2026",
-    time: "07:58",
-  },
-];
-
-const systemInfo = [
-  {
-    icon: FolderClosed,
-    label: "SYSVOL Path",
-    value: "\\\\CORP\\SYSVOL\\corp.intra.local\\Wallpaper\\",
-  },
-  { icon: ImageIcon, label: "Wallpaper Filename", value: "Wallpaper.jpg" },
-  { icon: Clock, label: "Scheduler Interval", value: "1 minute" },
-  { icon: PlayCircle, label: "Last Scheduler Run", value: "23 Jul 2026 08:01:01" },
-  { icon: PlayCircle, label: "Next Schedule Run", value: "23 Jul 2026 08:02:01" },
-  { icon: Clock, label: "Server Time", value: "23 Jul 2026 08:01:15" },
-];
-
 function Dashboard() {
   const { isAuthenticated } = useAuth();
-  const { data } = useQuery({
+  const navigate = useNavigate();
+  const {
+    data,
+    isPending: isSummaryPending,
+    error: summaryError,
+  } = useQuery({
     queryKey: ["dashboard-summary"],
     queryFn: () => apiGet<DashboardSummary>("/dashboard/summary"),
+    enabled: isAuthenticated,
+  });
+  const campaignsQuery = useQuery({
+    queryKey: ["campaigns"],
+    queryFn: () => apiGet<{ items: CampaignSummary[] }>("/campaigns"),
     enabled: isAuthenticated,
   });
 
@@ -109,11 +63,33 @@ function Dashboard() {
   const nextCampaign = data?.nextCampaign;
   const deploymentStats = data?.deploymentStats;
   const schedulerStatus = data?.schedulerStatus;
-  const recentActivity = data?.recentActivity ?? activity;
+  const recentActivity = data?.recentActivity ?? [];
+  const upcomingCampaigns =
+    campaignsQuery.data?.items.filter((campaign) => campaign.status === "SCHEDULED").slice(0, 3) ??
+    [];
+  const campaignImageUrls = useProtectedImageUrls({
+    items: [
+      ...(currentCampaign ? [currentCampaign] : []),
+      ...(nextCampaign ? [nextCampaign] : []),
+      ...upcomingCampaigns,
+    ],
+    enabled: isAuthenticated,
+    getId: (campaign) => campaign.id,
+    getImageUrl: (campaign) => campaign.wallpaperImageUrl,
+  });
   const systemInfoRows = data
     ? [
-        { icon: FolderClosed, label: "SYSVOL Path", value: data.systemInfo.sysvolPath },
-        { icon: ImageIcon, label: "Wallpaper Filename", value: data.systemInfo.wallpaperFilename },
+        { icon: FolderClosed, label: "SYSVOL Path", value: data.systemInfo.sysvolPath || "—" },
+        {
+          icon: ImageIcon,
+          label: "Wallpaper Filename",
+          value: data.systemInfo.wallpaperFilename || "—",
+        },
+        {
+          icon: ImageIcon,
+          label: "Default Wallpaper",
+          value: data.systemInfo.defaultWallpaperTitle || "Not configured",
+        },
         {
           icon: Clock,
           label: "Scheduler Interval",
@@ -131,12 +107,19 @@ function Dashboard() {
         },
         { icon: Clock, label: "Server Time", value: formatDateTime(data.systemInfo.serverTime) },
       ]
-    : systemInfo;
+    : [];
+  const donutStats = deploymentStats ?? { success: 0, failed: 0, warning: 0, total: 0 };
+  const loadError =
+    summaryError instanceof Error
+      ? summaryError.message
+      : campaignsQuery.error instanceof Error
+        ? campaignsQuery.error.message
+        : null;
+  const isLoading = isSummaryPending || campaignsQuery.isPending;
 
   return (
     <AppLayout title="Dashboard" subtitle="Overview of wallpaper campaign system">
       <div className="space-y-6">
-        {/* Top stats */}
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5">
           <StatCard
             label="Current Campaign"
@@ -188,11 +171,7 @@ function Dashboard() {
           />
           <StatCard
             label="Last Deployment"
-            value={
-              deploymentStats
-                ? `${deploymentStats.success}/${deploymentStats.total}`
-                : "Unavailable"
-            }
+            value={deploymentStats ? `${deploymentStats.success}/${deploymentStats.total}` : "0/0"}
             icon={CheckCircle2}
             tone="success"
             footer={
@@ -209,20 +188,28 @@ function Dashboard() {
           />
         </div>
 
-        {/* Middle row */}
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
-          {/* Current campaign */}
           <div className="xl:col-span-2 rounded-xl border border-border bg-card p-6">
             <div className="flex items-center justify-between mb-5">
               <h2 className="text-base font-bold">Current Campaign</h2>
-              <Button size="sm">View Campaign</Button>
+              <Button size="sm" onClick={() => navigate({ to: "/campaigns" })}>
+                View Campaign
+              </Button>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <img
-                src={safetyImg}
-                alt="Safety Awareness 2026"
-                className="w-full h-56 object-cover rounded-lg"
-              />
+              {currentCampaign ? (
+                campaignImageUrls[currentCampaign.id] ? (
+                  <img
+                    src={campaignImageUrls[currentCampaign.id]}
+                    alt={currentCampaign.wallpaperTitle}
+                    className="w-full h-56 object-cover rounded-lg"
+                  />
+                ) : (
+                  <EmptyPanel label="Loading wallpaper preview..." />
+                )
+              ) : (
+                <EmptyPanel label="No active campaign wallpaper to preview." />
+              )}
               <div>
                 <h3 className="text-lg font-bold">
                   {currentCampaign?.name ?? "No active campaign"}
@@ -266,7 +253,6 @@ function Dashboard() {
             </div>
           </div>
 
-          {/* Upcoming */}
           <div className="rounded-xl border border-border bg-card p-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-base font-bold">Upcoming Campaign</h2>
@@ -274,24 +260,38 @@ function Dashboard() {
                 View all
               </Link>
             </div>
-            <div className="space-y-3">
-              {upcoming.map((c) => (
-                <div
-                  key={c.name}
-                  className="flex items-center gap-3 pb-3 border-b border-border last:border-0 last:pb-0"
-                >
-                  <img src={c.img} alt={c.name} className="h-12 w-16 object-cover rounded-md" />
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-semibold truncate">{c.name}</div>
-                    <div className="text-xs text-muted-foreground">Starts on {c.starts}</div>
+            {upcomingCampaigns.length > 0 ? (
+              <div className="space-y-3">
+                {upcomingCampaigns.map((campaign) => (
+                  <div
+                    key={campaign.id}
+                    className="flex items-center gap-3 pb-3 border-b border-border last:border-0 last:pb-0"
+                  >
+                    {campaignImageUrls[campaign.id] ? (
+                      <img
+                        src={campaignImageUrls[campaign.id]}
+                        alt={campaign.wallpaperTitle}
+                        className="h-12 w-16 object-cover rounded-md"
+                      />
+                    ) : (
+                      <div className="h-12 w-16 rounded-md bg-muted shrink-0" />
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-semibold truncate">{campaign.name}</div>
+                      <div className="text-xs text-muted-foreground">
+                        Starts on {formatDateTime(campaign.startDate)}
+                      </div>
+                    </div>
+                    <Badge className="bg-info-soft text-info hover:bg-info-soft whitespace-nowrap">
+                      {campaign.priority >= 8 ? "High" : "Scheduled"}
+                    </Badge>
+                    <GripVertical className="h-4 w-4 text-muted-foreground" />
                   </div>
-                  <Badge className="bg-info-soft text-info hover:bg-info-soft whitespace-nowrap">
-                    {c.in}
-                  </Badge>
-                  <GripVertical className="h-4 w-4 text-muted-foreground" />
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            ) : (
+              <EmptyMessage message="No scheduled campaigns in the queue." />
+            )}
             <Link
               to="/timeline"
               className="mt-4 flex items-center justify-between text-sm text-primary hover:underline"
@@ -302,20 +302,22 @@ function Dashboard() {
           </div>
         </div>
 
-        {/* Bottom row */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-          {/* Deployment status */}
           <div className="rounded-xl border border-border bg-card p-6">
             <h2 className="text-base font-bold mb-5">Deployment Status</h2>
             <div className="flex items-center gap-6">
-              <DonutChart success={128} failed={2} warning={1} />
+              <DonutChart
+                success={donutStats.success}
+                failed={donutStats.failed}
+                warning={donutStats.warning}
+              />
               <div className="flex-1 space-y-2.5 text-sm">
-                <LegendRow color="bg-success" label="Success" value={128} />
-                <LegendRow color="bg-destructive" label="Failed" value={2} />
-                <LegendRow color="bg-warning" label="Warning" value={1} />
+                <LegendRow color="bg-success" label="Success" value={donutStats.success} />
+                <LegendRow color="bg-destructive" label="Failed" value={donutStats.failed} />
+                <LegendRow color="bg-warning" label="Warning" value={donutStats.warning} />
                 <div className="pt-2 border-t border-border flex justify-between font-semibold">
                   <span>Total</span>
-                  <span>131</span>
+                  <span>{donutStats.total}</span>
                 </div>
               </div>
             </div>
@@ -328,7 +330,6 @@ function Dashboard() {
             </Link>
           </div>
 
-          {/* Recent activity */}
           <div className="rounded-xl border border-border bg-card p-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-base font-bold">Recent Activity</h2>
@@ -336,41 +337,68 @@ function Dashboard() {
                 View all
               </Link>
             </div>
-            <ul className="space-y-3">
-              {recentActivity.map((a) => (
-                <li key={a.id} className="flex items-start gap-3">
-                  <div className="h-8 w-8 rounded-md bg-muted flex items-center justify-center shrink-0">
-                    <Activity className="h-4 w-4 text-muted-foreground" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium">{a.title}</div>
-                    <div className="text-xs text-muted-foreground truncate">{a.detail}</div>
-                  </div>
-                  <div className="text-right text-xs text-muted-foreground shrink-0">
-                    <div>{formatDateTime(a.timestamp)}</div>
-                    <div>{a.actor}</div>
-                  </div>
-                </li>
-              ))}
-            </ul>
+            {recentActivity.length > 0 ? (
+              <ul className="space-y-3">
+                {recentActivity.map((a) => (
+                  <li key={a.id} className="flex items-start gap-3">
+                    <div className="h-8 w-8 rounded-md bg-muted flex items-center justify-center shrink-0">
+                      <Activity className="h-4 w-4 text-muted-foreground" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium">{a.title}</div>
+                      <div className="text-xs text-muted-foreground truncate">{a.detail}</div>
+                    </div>
+                    <div className="text-right text-xs text-muted-foreground shrink-0">
+                      <div>{formatDateTime(a.timestamp)}</div>
+                      <div>{a.actor}</div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <EmptyMessage message="No recent activity recorded yet." />
+            )}
           </div>
 
-          {/* System info */}
           <div className="rounded-xl border border-border bg-card p-6">
             <h2 className="text-base font-bold mb-4">System Information</h2>
-            <ul className="space-y-3 text-sm">
-              {systemInfoRows.map((s) => (
-                <li key={s.label} className="flex items-center gap-3">
-                  <s.icon className="h-4 w-4 text-muted-foreground shrink-0" />
-                  <span className="text-muted-foreground w-40 shrink-0">{s.label}</span>
-                  <span className="flex-1 text-right font-medium truncate">{s.value}</span>
-                </li>
-              ))}
-            </ul>
+            {systemInfoRows.length > 0 ? (
+              <ul className="space-y-3 text-sm">
+                {systemInfoRows.map((s) => (
+                  <li key={s.label} className="flex items-center gap-3">
+                    <s.icon className="h-4 w-4 text-muted-foreground shrink-0" />
+                    <span className="text-muted-foreground w-40 shrink-0">{s.label}</span>
+                    <span className="flex-1 text-right font-medium truncate">{s.value}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <EmptyMessage message="System information is unavailable right now." />
+            )}
           </div>
         </div>
+        {isLoading ? (
+          <div className="text-sm text-muted-foreground">Loading dashboard data...</div>
+        ) : null}
+        {loadError ? <div className="text-sm text-destructive">{loadError}</div> : null}
       </div>
     </AppLayout>
+  );
+}
+
+function EmptyPanel({ label }: { label: string }) {
+  return (
+    <div className="w-full h-56 rounded-lg border border-dashed border-border bg-muted flex items-center justify-center text-sm text-muted-foreground text-center px-6">
+      {label}
+    </div>
+  );
+}
+
+function EmptyMessage({ message }: { message: string }) {
+  return (
+    <div className="rounded-lg border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">
+      {message}
+    </div>
   );
 }
 
@@ -414,6 +442,16 @@ function DonutChart({
   warning: number;
 }) {
   const total = success + failed + warning;
+  if (total === 0) {
+    return (
+      <div className="relative h-32 w-32 shrink-0 rounded-full border border-dashed border-border bg-muted flex items-center justify-center text-center">
+        <div>
+          <div className="text-lg font-semibold">0</div>
+          <div className="text-[10px] text-muted-foreground">No deployments</div>
+        </div>
+      </div>
+    );
+  }
   const r = 42;
   const c = 2 * Math.PI * r;
   const seg = (n: number) => (n / total) * c;

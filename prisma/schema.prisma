@@ -105,7 +105,7 @@ model CampaignQueueEntry {
 
 model DeploymentLog {
   id                   String            @id @default(uuid())
-  campaignId           String
+  campaignId           String?
   wallpaperId          String
   triggerSource        TriggerSource
   startedAt            DateTime
@@ -118,7 +118,7 @@ model DeploymentLog {
   verifiedExists       Boolean?
   verifiedSizeBytes    Int?
   verifiedChecksumSha256 String?
-  campaign             Campaign          @relation(fields: [campaignId], references: [id])
+  campaign             Campaign?         @relation(fields: [campaignId], references: [id])
   wallpaper            Wallpaper         @relation(fields: [wallpaperId], references: [id])
 }
 

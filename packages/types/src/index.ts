@@ -8,6 +8,8 @@ export type DeploymentResult = "SUCCESS" | "FAILED" | "WARNING";
 
 export type TriggerSource = "SCHEDULER" | "MANUAL" | "RETRY";
 
+export type DeploymentSourceType = "CAMPAIGN" | "DEFAULT_WALLPAPER";
+
 export interface UserSummary {
   id: string;
   username: string;
@@ -38,6 +40,7 @@ export interface WallpaperSummary {
   imageUrl: string;
   uploadedAt: string;
   usageStatus: "IN_USE" | "SCHEDULED" | "DRAFT";
+  isDefault: boolean;
 }
 
 export interface CampaignSummary {
@@ -45,6 +48,7 @@ export interface CampaignSummary {
   name: string;
   wallpaperId: string;
   wallpaperTitle: string;
+  wallpaperImageUrl: string;
   description: string | null;
   startDate: string | null;
   endDate: string | null;
@@ -64,14 +68,24 @@ export interface QueueItem {
 
 export interface DeploymentLogItem {
   id: string;
-  campaignId: string;
+  campaignId: string | null;
   campaignName: string;
+  wallpaperId: string;
+  wallpaperTitle: string;
+  wallpaperImageUrl: string;
   startedAt: string;
   finishedAt: string | null;
   durationSeconds: number | null;
   result: DeploymentResult;
+  sourceType: DeploymentSourceType;
+  triggerSource: TriggerSource;
   operator: string;
   message: string | null;
+  targetPath: string;
+  targetFilename: string;
+  verifiedExists: boolean | null;
+  verifiedSizeBytes: number | null;
+  verifiedChecksumSha256: string | null;
 }
 
 export interface ActivityLogItem {
@@ -103,12 +117,15 @@ export interface DashboardSummary {
     sysvolPath: string;
     wallpaperFilename: string;
     serverTime: string;
+    defaultWallpaperId: string | null;
+    defaultWallpaperTitle: string | null;
   };
 }
 
 export interface AppSettings {
   sysvolPath: string;
   wallpaperFilename: string;
+  defaultWallpaperId: string | null;
   storageLocation: string;
   schedulerIntervalMinutes: number;
   deploymentTimeoutSeconds: number;

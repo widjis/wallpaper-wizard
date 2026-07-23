@@ -47,6 +47,19 @@ async function parseResponse<T>(response: Response): Promise<T> {
   return (await response.json()) as T;
 }
 
+export function buildApiUrl(path: string): string {
+  return `${apiBaseUrl}${resolveApiPath(path)}`;
+}
+
+export function resolveApiPath(pathOrUrl: string): string {
+  if (pathOrUrl.startsWith("http://") || pathOrUrl.startsWith("https://")) {
+    const parsed = new URL(pathOrUrl);
+    return parsed.pathname.replace(/^\/api/, "");
+  }
+
+  return pathOrUrl.replace(/^\/api/, "");
+}
+
 export async function apiGet<T>(path: string): Promise<T> {
   const session = getStoredSession();
   const response = await fetch(`${apiBaseUrl}${path}`, {
@@ -116,7 +129,7 @@ export async function apiUpload<T>(path: string, formData: FormData): Promise<T>
 
 export async function apiImageUrl(path: string): Promise<string> {
   const session = getStoredSession();
-  const response = await fetch(`${apiBaseUrl}${path}`, {
+  const response = await fetch(buildApiUrl(path), {
     headers: session?.token ? { Authorization: `Bearer ${session.token}` } : undefined,
   });
 

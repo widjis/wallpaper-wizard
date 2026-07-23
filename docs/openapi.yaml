@@ -587,7 +587,7 @@ components:
         token:
           type: string
         user:
-          $ref: '#/components/schemas/User'
+          $ref: "#/components/schemas/User"
     User:
       type: object
       properties:
@@ -665,6 +665,8 @@ components:
         uploadedAt:
           type: string
           format: date-time
+        isDefault:
+          type: boolean
     Campaign:
       type: object
       properties:
@@ -676,6 +678,10 @@ components:
         wallpaperId:
           type: string
           format: uuid
+        wallpaperTitle:
+          type: string
+        wallpaperImageUrl:
+          type: string
         description:
           type: string
           nullable: true
@@ -772,12 +778,19 @@ components:
         campaignId:
           type: string
           format: uuid
+          nullable: true
         wallpaperId:
           type: string
           format: uuid
-        triggerSource:
+        campaignName:
           type: string
-          enum: [SCHEDULER, MANUAL, RETRY]
+        sourceType:
+          type: string
+          enum: [CAMPAIGN, DEFAULT_WALLPAPER]
+        wallpaperTitle:
+          type: string
+        wallpaperImageUrl:
+          type: string
         startedAt:
           type: string
           format: date-time
@@ -791,6 +804,11 @@ components:
         result:
           type: string
           enum: [SUCCESS, FAILED, WARNING]
+        triggerSource:
+          type: string
+          enum: [SCHEDULER, MANUAL, RETRY]
+        operator:
+          type: string
         message:
           type: string
           nullable: true
@@ -829,6 +847,10 @@ components:
           type: string
         wallpaperFilename:
           type: string
+        defaultWallpaperId:
+          type: string
+          format: uuid
+          nullable: true
         storageLocation:
           type: string
         maxUploadSizeMb:
@@ -850,6 +872,10 @@ components:
           type: string
         wallpaperFilename:
           type: string
+        defaultWallpaperId:
+          type: string
+          format: uuid
+          nullable: true
         storageLocation:
           type: string
         maxUploadSizeMb:
@@ -867,12 +893,28 @@ components:
     DashboardSummary:
       type: object
       properties:
-        activeCampaign:
+        currentCampaign:
           $ref: "#/components/schemas/Campaign"
         nextCampaign:
           $ref: "#/components/schemas/Campaign"
-        schedulerHealthy:
-          type: boolean
+        schedulerStatus:
+          type: object
+          properties:
+            healthy:
+              type: boolean
+            queueState:
+              type: string
+              enum: [RUNNING, PAUSED]
+            intervalMinutes:
+              type: integer
+            lastRunAt:
+              type: string
+              format: date-time
+              nullable: true
+            nextRunAt:
+              type: string
+              format: date-time
+              nullable: true
         deploymentStats:
           type: object
           properties:
@@ -882,10 +924,29 @@ components:
               type: integer
             warning:
               type: integer
+            total:
+              type: integer
         recentActivity:
           type: array
           items:
             $ref: "#/components/schemas/ActivityLog"
+        systemInfo:
+          type: object
+          properties:
+            sysvolPath:
+              type: string
+            wallpaperFilename:
+              type: string
+            serverTime:
+              type: string
+              format: date-time
+            defaultWallpaperId:
+              type: string
+              format: uuid
+              nullable: true
+            defaultWallpaperTitle:
+              type: string
+              nullable: true
     HealthStatus:
       type: object
       properties:

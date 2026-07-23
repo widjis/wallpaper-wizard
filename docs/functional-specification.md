@@ -6,7 +6,7 @@ This document defines the target functional behavior for CWCM and records the cu
 
 ## Current State Summary
 
-The repository now provides a monorepo-based web and API foundation with live API-backed screens for major modules, but a few production behaviors are still blocked by infrastructure credentials and unfinished hardening work.
+The repository now provides a monorepo-based web and API foundation with live API-backed screens for every main menu, and the residual hybrid/mock UI backlog for the current operator and administrator routes has been cleared. The detailed route-by-route status lives in `docs/ui-ux-wiring-audit.md`.
 
 ## Functional Modules
 
@@ -24,7 +24,8 @@ Current state:
 - local login screen exists
 - bearer-token session state exists in the API and web client
 - basic route protection exists in the web shell
-- full RBAC and role-specific action enforcement are still incomplete
+- role-based navigation and role-based action enforcement now exist in the main web flows
+- backend authorization remains minimal compared with full production-grade RBAC
 
 ### 2. Dashboard
 
@@ -37,12 +38,12 @@ Target behavior:
 - show scheduler health
 - show deployment result summary
 - show recent activity
+- show configured default wallpaper in system information
 
 Current state:
 
-- present as static dashboard UI
-- values are hardcoded
-- not backed by API or real telemetry
+- `GET /api/dashboard/summary` is wired and provides current campaign, next campaign, scheduler status, deployment stats, recent activity, and system information including the configured default wallpaper
+- upcoming campaign cards, wallpaper preview, deployment donut, and CTA behavior now use live data or explicit empty states
 
 ### 3. Wallpaper Library
 
@@ -54,13 +55,16 @@ Target behavior:
 - download wallpaper
 - preview wallpaper
 - search and filter
+- mark wallpaper configured as the system default
 - store metadata including resolution, size, checksum, uploader, and uploaded date
 
 Current state:
 
-- upload flow exists through the API and stores metadata in the database
-- file storage path is used for uploaded assets
-- delete, download, preview, search, and filter are not fully implemented
+- upload, list, preview, download, and delete flows are wired to the API
+- wallpaper binaries are stored in PostgreSQL as normalized JPG blobs rather than filesystem-only paths
+- search and usage filtering now work against live wallpaper rows
+- the wallpaper configured as default is surfaced in the UI and protected from deletion
+- unauthorized roles are denied from the wallpaper route
 
 ### 4. Campaign Management
 
@@ -76,10 +80,10 @@ Target behavior:
 
 Current state:
 
-- live campaign list exists
-- create campaign form exists in the web UI
+- live campaign list and mutation flows exist in the web UI
 - overlap conflicts are validated in the API
-- edit, delete, duplicate, activate-now, and cancel flows are still incomplete
+- create, edit, delete, duplicate, activate-now, and cancel flows are wired
+- Viewer users now get read-only access while mutation actions are limited to Administrator and Operator
 
 ### 5. Queue Management
 
@@ -94,9 +98,10 @@ Target behavior:
 
 Current state:
 
-- queue ordering, pause, and resume flows are backed by the API
+- queue ordering, pause, resume, remove, and manual deploy trigger flows are backed by the API
 - queue state is persisted in the database
-- remove campaign is still incomplete
+- the screen now uses explicit loading, empty, and error states instead of fallback queue rows
+- force deploy is presented as a global queue action
 
 ### 6. Scheduler
 
@@ -107,11 +112,13 @@ Target behavior:
 - complete expired campaign
 - prevent overlap conflicts
 - trigger deployment
+- fall back to default wallpaper when no campaign is active
 - retry failed deployment according to policy
 
 Current state:
 
 - manual scheduler trigger endpoint exists
+- deployment source selection now follows `active campaign -> eligible scheduled campaign -> configured default wallpaper`
 - automated recurring worker is not yet implemented with BullMQ or cron-backed production flow
 
 ### 7. Deployment Engine
@@ -125,12 +132,15 @@ Target behavior:
 - replace `Wallpaper.jpg`
 - verify deployment result
 - write deployment log
+- use default wallpaper as fallback when no active campaign is available
 
 Current state:
 
 - deployment trigger and verification endpoints exist
 - SMB publish utility now exists in backend code
-- production validation is blocked because external PostgreSQL schema could not be applied with the current credentials in `.env`
+- production validation is still blocked in the current environment because SYSVOL verification reports `the share is not valid`
+- the deployment page now renders live wallpaper preview, live target detail, and result-aware deployment steps
+- deployment history can now record default wallpaper deployments without an active campaign
 
 ### 8. Deployment Verification
 
@@ -145,7 +155,7 @@ Target behavior:
 Current state:
 
 - verification path now attempts publish and checksum comparison in backend code
-- full operational verification remains blocked until the database schema can be applied and the environment can be exercised end-to-end
+- full operational verification remains blocked until the target environment exposes a valid share path and the deployment flow can be exercised end-to-end
 
 ### 9. Deployment History
 
@@ -156,7 +166,7 @@ Target behavior:
 
 Current state:
 
-- history view consumes live deployment API responses
+- history view consumes live deployment API responses with explicit loading, empty, and error states
 
 ### 10. Activity Log
 
@@ -167,6 +177,7 @@ Target behavior:
 Current state:
 
 - activity log is persisted and served from the API for core actions already implemented
+- the `History & Audit` screen now renders the activity endpoint alongside deployment history
 
 ### 11. Settings
 
@@ -180,10 +191,14 @@ Target behavior:
 - configure scheduler interval
 - configure retry policy
 - configure deployment timeout
+- configure default wallpaper fallback
 
 Current state:
 
 - settings are persisted through the API and database layer
+- the page is fully wired for current MVP scope and does not rely on local mock data
+- non-admin roles are restricted from changing settings
+- admins can configure a default wallpaper that is deployed automatically when no campaign is active
 
 ### 12. User Management
 
@@ -194,8 +209,9 @@ Target behavior:
 
 Current state:
 
-- users list is served by the API
-- full user administration workflow is still incomplete
+- users list plus create, edit, and delete flows are served by the API
+- sample users and fabricated email presentation were removed from the UI
+- user administration is restricted to Administrator at the route level
 
 ## Roles
 
@@ -223,7 +239,8 @@ Current state:
 - campaign overlap must be handled deterministically
 - every deployment action must create a traceable log
 - wallpaper publishing must target a configurable SYSVOL path and filename
+- when no campaign is active, the system must deploy the configured default wallpaper instead of keeping the last campaign wallpaper indefinitely
 
 ## Current Implementation Verdict
 
-The repository now satisfies a substantial part of the MVP functional surface, but it still does not fully satisfy the PRD because production database onboarding, full RBAC, automated scheduler workers, and fully validated SYSVOL deployment are not yet complete.
+The repository now satisfies a substantial part of the MVP functional surface, including default wallpaper fallback behavior, but it still does not fully satisfy the PRD because backend-grade RBAC depth, automated scheduler workers, and fully validated SYSVOL deployment are not yet complete.

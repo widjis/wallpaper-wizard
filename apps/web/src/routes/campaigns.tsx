@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/table";
 import { apiDelete, apiGet, apiPatch, apiPost, formatDate } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { canManageCampaigns } from "@/lib/roles";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -58,7 +59,7 @@ function statusColor(s: string) {
 
 function Page() {
   const queryClient = useQueryClient();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, session } = useAuth();
   const [showForm, setShowForm] = useState(false);
   const [editingCampaignId, setEditingCampaignId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -231,46 +232,12 @@ function Page() {
 
   const wallpaperOptions = wallpaperQuery.data?.items ?? [];
   const hasWallpapers = wallpaperOptions.length > 0;
+  const canManage = canManageCampaigns(session?.user.role);
   const canSubmit =
     form.name.trim().length > 0 &&
     form.wallpaperId.trim().length > 0 &&
     !createMutation.isPending &&
     !updateMutation.isPending;
-
-  // #region debug-point A:campaigns-state
-  useEffect(() => {
-    fetch("http://127.0.0.1:7777/event", {
-      method: "POST",
-      body: JSON.stringify({
-        sessionId: "campaigns-still-broken",
-        runId: "pre-fix",
-        hypothesisId: "A",
-        location: "campaigns.tsx:campaigns-state",
-        msg: "[DEBUG] campaigns page state",
-        data: {
-          isAuthenticated,
-          liveCount: data?.items?.length ?? 0,
-          filteredCount: campaignRows.length,
-          showForm,
-          editingCampaignId,
-          search,
-          statusFilter,
-          priorityFilter,
-        },
-        ts: Date.now(),
-      }),
-    }).catch(() => {});
-  }, [
-    campaignRows.length,
-    data?.items?.length,
-    editingCampaignId,
-    isAuthenticated,
-    priorityFilter,
-    search,
-    showForm,
-    statusFilter,
-  ]);
-  // #endregion
 
   return (
     <AppLayout title="Campaigns" subtitle="Plan and manage every wallpaper campaign">
@@ -287,22 +254,6 @@ function Page() {
         <Button
           variant="outline"
           onClick={() =>
-            // #region debug-point A:status-filter-click
-            fetch("http://127.0.0.1:7777/event", {
-              method: "POST",
-              body: JSON.stringify({
-                sessionId: "campaigns-still-broken",
-                runId: "pre-fix",
-                hypothesisId: "A",
-                location: "campaigns.tsx:status-filter-click",
-                msg: "[DEBUG] status filter button clicked",
-                data: {
-                  current: statusFilter,
-                },
-                ts: Date.now(),
-              }),
-            }).catch(() => {})
-              .finally(() =>
             setStatusFilter((current) =>
               current === "ALL"
                 ? "ACTIVE"
@@ -316,7 +267,6 @@ function Page() {
                         ? "CANCELLED"
                         : "ALL",
             )
-              )
           }
         >
           Status: {statusFilter}
@@ -324,64 +274,32 @@ function Page() {
         <Button
           variant="outline"
           onClick={() =>
-            // #region debug-point A:priority-filter-click
-            fetch("http://127.0.0.1:7777/event", {
-              method: "POST",
-              body: JSON.stringify({
-                sessionId: "campaigns-still-broken",
-                runId: "pre-fix",
-                hypothesisId: "A",
-                location: "campaigns.tsx:priority-filter-click",
-                msg: "[DEBUG] priority filter button clicked",
-                data: {
-                  current: priorityFilter,
-                },
-                ts: Date.now(),
-              }),
-            }).catch(() => {})
-              .finally(() =>
             setPriorityFilter((current) =>
               current === "ALL" ? "HIGH" : current === "HIGH" ? "NORMAL" : "ALL",
             )
-              )
           }
         >
           Priority: {priorityFilter}
         </Button>
         <div className="flex-1" />
-        <Button
-          onClick={() => {
-            // #region debug-point A:new-campaign-click
-            fetch("http://127.0.0.1:7777/event", {
-              method: "POST",
-              body: JSON.stringify({
-                sessionId: "campaigns-still-broken",
-                runId: "pre-fix",
-                hypothesisId: "A",
-                location: "campaigns.tsx:new-campaign-click",
-                msg: "[DEBUG] new campaign button clicked",
-                data: {
-                  showForm,
-                  editingCampaignId,
-                },
-                ts: Date.now(),
-              }),
-            }).catch(() => {});
-            // #endregion
-            if (showForm && !editingCampaignId) {
-              resetForm();
-              return;
-            }
-            setShowForm(true);
-            setEditingCampaignId(null);
-          }}
-        >
-          <Plus className="h-4 w-4 mr-2" />
-          New Campaign
-        </Button>
+        {canManage ? (
+          <Button
+            onClick={() => {
+              if (showForm && !editingCampaignId) {
+                resetForm();
+                return;
+              }
+              setShowForm(true);
+              setEditingCampaignId(null);
+            }}
+          >
+            <Plus className="h-4 w-4 mr-2" />
+            New Campaign
+          </Button>
+        ) : null}
       </div>
 
-      {showForm ? (
+      {showForm && canManage ? (
         <div className="rounded-xl border border-border bg-card p-5 mb-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <Field label="Campaign name">
@@ -440,24 +358,12 @@ function Page() {
           <div className="mt-4 flex gap-3">
             <Button
               onClick={() => {
-                // #region debug-point B:save-click
-                fetch("http://127.0.0.1:7777/event", {
-                  method: "POST",
-                  body: JSON.stringify({
-                    sessionId: "campaigns-still-broken",
-                    runId: "pre-fix",
-                    hypothesisId: "B",
-                    location: "campaigns.tsx:save-click",
-                    msg: "[DEBUG] save campaign clicked",
-                    data: {
-                      editingCampaignId,
-                      form,
-                    },
-                    ts: Date.now(),
-                  }),
-                }).catch(() => {});
-                // #endregion
-                editingCampaignId ? updateMutation.mutate() : createMutation.mutate();
+                if (editingCampaignId) {
+                  updateMutation.mutate();
+                  return;
+                }
+
+                createMutation.mutate();
               }}
               disabled={!canSubmit}
             >
@@ -498,6 +404,11 @@ function Page() {
           {editingCampaignId ? (
             <div className="mt-3 text-sm text-success">Editing mode is active.</div>
           ) : null}
+        </div>
+      ) : null}
+      {!canManage ? (
+        <div className="mb-6 rounded-xl border border-dashed border-border bg-card px-4 py-3 text-sm text-muted-foreground">
+          Your role can review campaign data but cannot create or change campaigns.
         </div>
       ) : null}
 
@@ -545,158 +456,90 @@ function Page() {
                 const end = formatDate(item.endDate);
                 const priority = item.priority >= 8 ? "High" : "Normal";
                 const status = item.status.charAt(0) + item.status.slice(1).toLowerCase();
-              return (
-                <TableRow key={item.id}>
-                  <TableCell className="font-medium">{name}</TableCell>
-                  <TableCell className="text-muted-foreground">{wallpaper}</TableCell>
-                  <TableCell className="text-muted-foreground">
-                    <span className="inline-flex items-center gap-1.5">
-                      <Calendar className="h-3 w-3" />
-                      {start}
-                    </span>
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">{end}</TableCell>
-                  <TableCell>{priority}</TableCell>
-                  <TableCell>
-                    <Badge className={`${statusColor(status)} hover:${statusColor(status)}`}>
-                      {status}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex flex-wrap items-center justify-end gap-1">
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => {
-                          // #region debug-point C:edit-click
-                          fetch("http://127.0.0.1:7777/event", {
-                            method: "POST",
-                            body: JSON.stringify({
-                              sessionId: "campaigns-still-broken",
-                              runId: "pre-fix",
-                              hypothesisId: "C",
-                              location: "campaigns.tsx:edit-click",
-                              msg: "[DEBUG] edit campaign clicked",
-                              data: {
-                                campaignId: item?.id ?? null,
-                                campaignName: item?.name ?? null,
-                              },
-                              ts: Date.now(),
-                            }),
-                          }).catch(() => {});
-                          // #endregion
-                          if (!item) return;
-                          setEditingCampaignId(item.id);
-                          setShowForm(true);
-                          setForm({
-                            name: item.name,
-                            wallpaperId: item.wallpaperId,
-                            description: item.description ?? "",
-                            startDate: item.startDate ? item.startDate.slice(0, 16) : "",
-                            endDate: item.endDate ? item.endDate.slice(0, 16) : "",
-                            priority: String(item.priority),
-                          });
-                        }}
-                      >
-                        Edit
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => {
-                          fetch("http://127.0.0.1:7777/event", {
-                            method: "POST",
-                            body: JSON.stringify({
-                              sessionId: "campaigns-still-broken",
-                              runId: "pre-fix",
-                              hypothesisId: "C",
-                              location: "campaigns.tsx:duplicate-click",
-                              msg: "[DEBUG] duplicate campaign clicked",
-                              data: {
-                                campaignId: item.id,
-                              },
-                              ts: Date.now(),
-                            }),
-                          }).catch(() => {});
-                          duplicateMutation.mutate(item.id);
-                        }}
-                      >
-                        Duplicate
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => {
-                          fetch("http://127.0.0.1:7777/event", {
-                            method: "POST",
-                            body: JSON.stringify({
-                              sessionId: "campaigns-still-broken",
-                              runId: "pre-fix",
-                              hypothesisId: "C",
-                              location: "campaigns.tsx:activate-click",
-                              msg: "[DEBUG] activate campaign clicked",
-                              data: {
-                                campaignId: item.id,
-                              },
-                              ts: Date.now(),
-                            }),
-                          }).catch(() => {});
-                          activateMutation.mutate(item.id);
-                        }}
-                      >
-                        Activate
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => {
-                          fetch("http://127.0.0.1:7777/event", {
-                            method: "POST",
-                            body: JSON.stringify({
-                              sessionId: "campaigns-still-broken",
-                              runId: "pre-fix",
-                              hypothesisId: "C",
-                              location: "campaigns.tsx:cancel-click",
-                              msg: "[DEBUG] cancel campaign clicked",
-                              data: {
-                                campaignId: item.id,
-                              },
-                              ts: Date.now(),
-                            }),
-                          }).catch(() => {});
-                          cancelMutation.mutate(item.id);
-                        }}
-                      >
-                        Cancel
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="text-destructive hover:text-destructive"
-                        onClick={() => {
-                          fetch("http://127.0.0.1:7777/event", {
-                            method: "POST",
-                            body: JSON.stringify({
-                              sessionId: "campaigns-still-broken",
-                              runId: "pre-fix",
-                              hypothesisId: "C",
-                              location: "campaigns.tsx:delete-click",
-                              msg: "[DEBUG] delete campaign clicked",
-                              data: {
-                                campaignId: item.id,
-                              },
-                              ts: Date.now(),
-                            }),
-                          }).catch(() => {});
-                          setDeleteTarget(item);
-                        }}
-                      >
-                        Delete
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              );
+                return (
+                  <TableRow key={item.id}>
+                    <TableCell className="font-medium">{name}</TableCell>
+                    <TableCell className="text-muted-foreground">{wallpaper}</TableCell>
+                    <TableCell className="text-muted-foreground">
+                      <span className="inline-flex items-center gap-1.5">
+                        <Calendar className="h-3 w-3" />
+                        {start}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">{end}</TableCell>
+                    <TableCell>{priority}</TableCell>
+                    <TableCell>
+                      <Badge className={`${statusColor(status)} hover:${statusColor(status)}`}>
+                        {status}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex flex-wrap items-center justify-end gap-1">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => {
+                            if (!item) return;
+                            setEditingCampaignId(item.id);
+                            setShowForm(true);
+                            setForm({
+                              name: item.name,
+                              wallpaperId: item.wallpaperId,
+                              description: item.description ?? "",
+                              startDate: item.startDate ? item.startDate.slice(0, 16) : "",
+                              endDate: item.endDate ? item.endDate.slice(0, 16) : "",
+                              priority: String(item.priority),
+                            });
+                          }}
+                          disabled={!canManage}
+                        >
+                          Edit
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => {
+                            duplicateMutation.mutate(item.id);
+                          }}
+                          disabled={!canManage}
+                        >
+                          Duplicate
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => {
+                            activateMutation.mutate(item.id);
+                          }}
+                          disabled={!canManage}
+                        >
+                          Activate
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => {
+                            cancelMutation.mutate(item.id);
+                          }}
+                          disabled={!canManage}
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="text-destructive hover:text-destructive"
+                          onClick={() => {
+                            setDeleteTarget(item);
+                          }}
+                          disabled={!canManage}
+                        >
+                          Delete
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                );
               })
             )}
           </TableBody>

@@ -6,9 +6,15 @@ The product goal is to replace manual SYSVOL wallpaper replacement with a govern
 
 ## Current Status
 
-This repository currently contains an early frontend prototype built with Lovable and TanStack Start. It already shows the intended CWCM screens, but it does not yet implement the backend services, persistence layer, scheduler, deployment engine, or Active Directory / SYSVOL integration required by the PRD.
+This repository now contains an MVP foundation built as a monorepo with:
 
-Use the documents under `docs/` as the source of truth before continuing implementation.
+- `apps/web` for the TanStack-based frontend
+- `apps/api` for the Fastify + Prisma backend
+- PostgreSQL-backed persistence
+- protected API routes and local auth
+- live UI wiring for the main operator flows
+
+The product is not yet release-ready. Residual gaps remain in RBAC, production scheduler/runtime validation, SYSVOL verification in the target environment, and removal of the last hybrid/mock UI fallbacks. Use the documents under `docs/` as the source of truth before continuing implementation.
 
 ## Source Of Truth
 
@@ -32,11 +38,16 @@ Current repository layout:
 
 ```text
 wallpaper-wizard/
-|- src/                # Existing frontend prototype
-|- public/             # Static assets
+|- apps/
+|  |- api/             # Fastify API service
+|  `- web/             # TanStack web app
+|- packages/           # Shared packages and types
+|- prisma/             # Prisma schema
+|- docker/             # Dockerfiles
+|- scripts/            # Operational and migration scripts
 |- docs/               # Planning and source-of-truth documents
 |- AGENTS.md           # Working method for agents
-|- README.md           # Repository entry point
+`- README.md           # Repository entry point
 ```
 
 Target product layout from the PRD:
@@ -60,7 +71,7 @@ cwcm/
 `- docker-compose.yml
 ```
 
-The repository has not yet been migrated to the target monorepo layout.
+The repository has been migrated to the target monorepo baseline, although some planned packages and production-grade infrastructure pieces are still pending.
 
 ## Development
 
@@ -99,8 +110,8 @@ npm run lint
 
 ## Planned Target Stack
 
-- Frontend: React, TypeScript, Vite, Material UI, TanStack Query, React Router, Zustand
-- Backend: NestJS, TypeScript, Prisma ORM, Swagger, Pino Logger
+- Frontend: React, TypeScript, Vite, TanStack Router, TanStack Query, Tailwind CSS
+- Backend: Fastify, TypeScript, Prisma ORM, Swagger, Pino Logger
 - Database: PostgreSQL
 - Queue and scheduler: Redis, BullMQ, NestJS Scheduler
 - Reverse proxy: Nginx
@@ -109,5 +120,5 @@ npm run lint
 ## Notes
 
 - This project is connected to Lovable. Avoid rewriting published git history.
-- Do not treat the current UI prototype as proof that the PRD is implemented.
+- Do not treat current live UI wiring as proof that the PRD is fully implemented; review `docs/ui-ux-wiring-audit.md` and `docs/implementation-roadmap.md` first.
 - Before any non-trivial change, check the active phase in `docs/implementation-roadmap.md`.

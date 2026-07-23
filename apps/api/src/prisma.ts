@@ -17,6 +17,7 @@ export const prisma = new PrismaClient();
 const defaultSettings = {
   sysvolPath: `${appConfig.CIFS_SHARE_PATH}${appConfig.SHARED_FOLDER_PATH.startsWith("/") ? appConfig.SHARED_FOLDER_PATH : `/${appConfig.SHARED_FOLDER_PATH}`}`,
   wallpaperFilename: "Wallpaper.jpg",
+  defaultWallpaperId: null,
   storageLocation: appConfig.APP_STORAGE_PATH,
   schedulerIntervalMinutes: 1,
   deploymentTimeoutSeconds: 60,
@@ -283,6 +284,36 @@ export async function ensureSeedData() {
         },
       ],
     });
+
+    await prisma.systemSetting.update({
+      where: { key: "defaultWallpaperId" },
+      data: {
+        valueJson: JSON.stringify(wallpaper1.id),
+        updatedById: admin.id,
+      },
+    });
+  }
+
+  const defaultWallpaperSetting = await prisma.systemSetting.findUnique({
+    where: { key: "defaultWallpaperId" },
+  });
+  if (defaultWallpaperSetting) {
+    const parsed = JSON.parse(defaultWallpaperSetting.valueJson) as string | null;
+    if (!parsed) {
+      const firstWallpaper = await prisma.wallpaper.findFirst({
+        where: { deletedAt: null },
+        orderBy: { uploadedAt: "asc" },
+      });
+      if (firstWallpaper) {
+        await prisma.systemSetting.update({
+          where: { key: "defaultWallpaperId" },
+          data: {
+            valueJson: JSON.stringify(firstWallpaper.id),
+            updatedById: admin.id,
+          },
+        });
+      }
+    }
   }
 
   await prisma.systemSetting.upsert({

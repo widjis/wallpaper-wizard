@@ -30,6 +30,7 @@ export const queueReorderSchema = z.object({
 export const settingsUpdateSchema = z.object({
   sysvolPath: z.string().min(1),
   wallpaperFilename: z.string().min(1),
+  defaultWallpaperId: z.string().uuid().nullable(),
   storageLocation: z.string().min(1),
   schedulerIntervalMinutes: z.number().int().min(1),
   deploymentTimeoutSeconds: z.number().int().min(1),
