@@ -289,6 +289,7 @@ Prepare the product for operational deployment.
 - proxy runtime diagnosis on 2026-07-23 identified an additional Docker-network issue:
   - `nginx` returned `502` because it still targeted a stale `api` container IP after container recreation
   - `docker/nginx.conf` now uses Docker DNS re-resolution through `resolver 127.0.0.11` and variable-based upstreams for both `api` and `web`
+  - follow-up correction: when `proxy_pass` used variable upstreams with embedded URI fragments, API requests started returning `404`; the config now preserves the original request URI so `/api/...` reaches Fastify unchanged
 - residual gap: the Ubuntu target host still needs explicit `docker compose up` validation to prove the CIFS-backed `sysvol` volume mounts successfully with the provided credentials
 - final dev-host preview recheck after the authenticated thumbnail bridge change was noisy because `localhost:8080` intermittently refused connections, but the database-only storage cleanup itself was validated through DB finalization, API access, and successful builds
 - residual release blockers are documented in this roadmap and supporting docs
