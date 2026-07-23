@@ -8,11 +8,8 @@ services:
       - .env
     environment:
       PORT: 3000
-      REDIS_URL: redis://redis:6379
     expose:
       - "3000"
-    depends_on:
-      - redis
 
   web:
     build:
@@ -26,12 +23,6 @@ services:
       - "3001"
     depends_on:
       - api
-
-  redis:
-    image: redis:7-alpine
-    restart: unless-stopped
-    expose:
-      - "6379"
 
   proxy:
     image: nginx:1.27-alpine
