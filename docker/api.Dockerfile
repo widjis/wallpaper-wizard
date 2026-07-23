@@ -11,6 +11,7 @@ RUN npm install
 
 COPY . .
 
+RUN npm run prisma:generate -w @cwcm/api
 RUN npm run build:api
 
 EXPOSE 3000

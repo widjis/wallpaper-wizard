@@ -37,6 +37,29 @@ function parseSetting<T>(valueJson: string): T {
   return JSON.parse(valueJson) as T;
 }
 
+async function upsertSystemSetting(key: string, value: unknown, updatedById?: string) {
+  await prisma.systemSetting.upsert({
+    where: { key },
+    update: {
+      valueJson: JSON.stringify(value),
+      updatedById,
+    },
+    create: {
+      key,
+      valueJson: JSON.stringify(value),
+      updatedById: updatedById ?? null,
+    },
+  });
+}
+
+async function getSystemSetting<T>(key: string, fallback: T): Promise<T> {
+  const setting = await prisma.systemSetting.findUnique({
+    where: { key },
+  });
+
+  return setting ? parseSetting<T>(setting.valueJson) : fallback;
+}
+
 function buildWallpaperImageUrl(wallpaperId: string): string {
   return `/api/wallpapers/${wallpaperId}/image`;
 }
@@ -214,6 +237,67 @@ async function resolveDeploymentSource(actor: string) {
     wallpaper: defaultWallpaper,
     activityDetail: `Default wallpaper: ${defaultWallpaper.title}`,
   };
+}
+
+export interface SchedulerRuntimeState {
+  lastRunAt: string | null;
+  nextRunAt: string | null;
+  lastHeartbeatAt: string | null;
+  lastOutcome: "SUCCESS" | "FAILED" | "SKIPPED" | null;
+  lastError: string | null;
+}
+
+export async function getSchedulerRuntimeState(): Promise<SchedulerRuntimeState> {
+  const [lastRunAt, nextRunAt, lastHeartbeatAt, lastOutcome, lastError] = await Promise.all([
+    getSystemSetting<string | null>("schedulerLastRunAt", null),
+    getSystemSetting<string | null>("schedulerNextRunAt", null),
+    getSystemSetting<string | null>("schedulerLastHeartbeatAt", null),
+    getSystemSetting<SchedulerRuntimeState["lastOutcome"]>("schedulerLastOutcome", null),
+    getSystemSetting<string | null>("schedulerLastError", null),
+  ]);
+
+  return {
+    lastRunAt,
+    nextRunAt,
+    lastHeartbeatAt,
+    lastOutcome,
+    lastError,
+  };
+}
+
+export async function updateSchedulerRuntimeState(
+  payload: Partial<SchedulerRuntimeState>,
+  updatedById?: string,
+) {
+  await Promise.all(
+    Object.entries(payload).map(([key, value]) =>
+      upsertSystemSetting(
+        `scheduler${key.charAt(0).toUpperCase()}${key.slice(1)}`,
+        value ?? null,
+        updatedById,
+      ),
+    ),
+  );
+}
+
+export async function markSchedulerHeartbeat() {
+  await updateSchedulerRuntimeState({
+    lastHeartbeatAt: new Date().toISOString(),
+  });
+}
+
+export async function scheduleNextSchedulerRun(referenceDate = new Date()) {
+  const settings = await getSettings();
+  const queueState = await getQueueState();
+
+  await updateSchedulerRuntimeState({
+    nextRunAt:
+      queueState === QueueState.PAUSED
+        ? null
+        : new Date(
+            referenceDate.getTime() + settings.schedulerIntervalMinutes * 60_000,
+          ).toISOString(),
+  });
 }
 
 export async function loginWithLocalAuth(
@@ -936,25 +1020,19 @@ export async function cancelCampaignRecord(payload: {
 }
 
 export async function getQueueState(): Promise<QueueState> {
-  const setting = await prisma.systemSetting.findUnique({
-    where: { key: "queueState" },
-  });
-  return setting ? parseSetting<QueueState>(setting.valueJson) : QueueState.RUNNING;
+  return getSystemSetting<QueueState>("queueState", QueueState.RUNNING);
 }
 
 export async function setQueueState(nextState: QueueState, updatedById?: string) {
-  await prisma.systemSetting.upsert({
-    where: { key: "queueState" },
-    update: {
-      valueJson: JSON.stringify(nextState),
-      updatedById,
-    },
-    create: {
-      key: "queueState",
-      valueJson: JSON.stringify(nextState),
-      updatedById: updatedById ?? null,
-    },
-  });
+  await upsertSystemSetting("queueState", nextState, updatedById);
+  if (nextState === QueueState.PAUSED) {
+    await updateSchedulerRuntimeState({
+      nextRunAt: null,
+    });
+    return;
+  }
+
+  await scheduleNextSchedulerRun();
 }
 
 export async function listQueue(): Promise<QueueItem[]> {
@@ -1054,7 +1132,6 @@ export async function createDeploymentRecord(payload: {
   const settings = await getSettings();
 
   const startedAt = new Date();
-  const finishedAt = new Date(startedAt.getTime() + 15000);
 
   const deployment = await prisma.deploymentLog.create({
     data: {
@@ -1062,18 +1139,18 @@ export async function createDeploymentRecord(payload: {
       wallpaperId: source.wallpaper.id,
       triggerSource: payload.triggerSource,
       startedAt,
-      finishedAt,
-      durationMs: 15000,
-      result: DeploymentResult.SUCCESS,
+      finishedAt: null,
+      durationMs: null,
+      result: DeploymentResult.WARNING,
       message:
         source.campaignId === null
-          ? `Deployment accepted through ${payload.triggerSource.toLowerCase()} trigger using default wallpaper.`
-          : `Deployment accepted through ${payload.triggerSource.toLowerCase()} trigger.`,
+          ? `Deployment started through ${payload.triggerSource.toLowerCase()} trigger using default wallpaper.`
+          : `Deployment started through ${payload.triggerSource.toLowerCase()} trigger.`,
       targetPath: settings.sysvolPath,
       targetFilename: settings.wallpaperFilename,
-      verifiedExists: true,
-      verifiedSizeBytes: source.wallpaper.sizeBytes,
-      verifiedChecksumSha256: source.wallpaper.checksumSha256,
+      verifiedExists: null,
+      verifiedSizeBytes: null,
+      verifiedChecksumSha256: null,
     },
     include: {
       campaign: true,
@@ -1176,31 +1253,22 @@ export async function listActivityLogs(): Promise<ActivityLogItem[]> {
 }
 
 export async function getSettings(): Promise<AppSettings> {
-  const entries = await prisma.systemSetting.findMany();
-  const map = new Map(entries.map((entry) => [entry.key, entry.valueJson]));
-
   return {
-    sysvolPath: parseSetting<string>(map.get("sysvolPath") ?? JSON.stringify("")),
-    wallpaperFilename: parseSetting<string>(
-      map.get("wallpaperFilename") ?? JSON.stringify("Wallpaper.jpg"),
-    ),
-    defaultWallpaperId: parseSetting<string | null>(map.get("defaultWallpaperId") ?? "null"),
-    storageLocation: parseSetting<string>(
-      map.get("storageLocation") ?? JSON.stringify(appConfig.APP_STORAGE_PATH),
-    ),
-    schedulerIntervalMinutes: parseSetting<number>(map.get("schedulerIntervalMinutes") ?? "1"),
-    deploymentTimeoutSeconds: parseSetting<number>(map.get("deploymentTimeoutSeconds") ?? "60"),
-    retryAttempts: parseSetting<number>(map.get("retryAttempts") ?? "3"),
-    maxUploadSizeMb: parseSetting<number>(map.get("maxUploadSizeMb") ?? "20"),
-    allowedExtensions: parseSetting<string[]>(
-      map.get("allowedExtensions") ?? JSON.stringify([".jpg", ".jpeg", ".png"]),
-    ),
-    overwriteExistingWallpaper: parseSetting<boolean>(
-      map.get("overwriteExistingWallpaper") ?? "true",
-    ),
-    autoRetryFailedDeployments: parseSetting<boolean>(
-      map.get("autoRetryFailedDeployments") ?? "true",
-    ),
+    sysvolPath: await getSystemSetting<string>("sysvolPath", ""),
+    wallpaperFilename: await getSystemSetting<string>("wallpaperFilename", "Wallpaper.jpg"),
+    defaultWallpaperId: await getSystemSetting<string | null>("defaultWallpaperId", null),
+    storageLocation: await getSystemSetting<string>("storageLocation", appConfig.APP_STORAGE_PATH),
+    schedulerIntervalMinutes: await getSystemSetting<number>("schedulerIntervalMinutes", 1),
+    deploymentTimeoutSeconds: await getSystemSetting<number>("deploymentTimeoutSeconds", 60),
+    retryAttempts: await getSystemSetting<number>("retryAttempts", 3),
+    maxUploadSizeMb: await getSystemSetting<number>("maxUploadSizeMb", 20),
+    allowedExtensions: await getSystemSetting<string[]>("allowedExtensions", [
+      ".jpg",
+      ".jpeg",
+      ".png",
+    ]),
+    overwriteExistingWallpaper: await getSystemSetting<boolean>("overwriteExistingWallpaper", true),
+    autoRetryFailedDeployments: await getSystemSetting<boolean>("autoRetryFailedDeployments", true),
   };
 }
 
@@ -1239,17 +1307,21 @@ export async function updateSettingsRecord(
     ),
   );
 
+  await scheduleNextSchedulerRun();
+
   return getSettings();
 }
 
 export async function buildDashboardSummary(): Promise<DashboardSummary> {
-  const [campaigns, deployments, activity, settings, queueState] = await Promise.all([
-    listCampaigns(),
-    listDeployments(),
-    listActivityLogs(),
-    getSettings(),
-    getQueueState(),
-  ]);
+  const [campaigns, deployments, activity, settings, queueState, schedulerRuntime] =
+    await Promise.all([
+      listCampaigns(),
+      listDeployments(),
+      listActivityLogs(),
+      getSettings(),
+      getQueueState(),
+      getSchedulerRuntimeState(),
+    ]);
   const defaultWallpaper = settings.defaultWallpaperId
     ? await prisma.wallpaper.findFirst({
         where: {
@@ -1277,11 +1349,15 @@ export async function buildDashboardSummary(): Promise<DashboardSummary> {
     currentCampaign,
     nextCampaign,
     schedulerStatus: {
-      healthy: true,
+      healthy: Boolean(
+        schedulerRuntime.lastHeartbeatAt &&
+        Date.now() - new Date(schedulerRuntime.lastHeartbeatAt).getTime() <=
+          Math.max(settings.schedulerIntervalMinutes * 120_000, 90_000),
+      ),
       queueState: queueState === QueueState.PAUSED ? "PAUSED" : "RUNNING",
       intervalMinutes: settings.schedulerIntervalMinutes,
-      lastRunAt: deployments[0]?.startedAt ?? null,
-      nextRunAt: new Date(Date.now() + settings.schedulerIntervalMinutes * 60000).toISOString(),
+      lastRunAt: schedulerRuntime.lastRunAt,
+      nextRunAt: schedulerRuntime.nextRunAt,
     },
     deploymentStats,
     recentActivity: activity,
@@ -1297,11 +1373,17 @@ export async function buildDashboardSummary(): Promise<DashboardSummary> {
 
 export async function getHealthStatus() {
   await prisma.$queryRaw(Prisma.sql`SELECT 1`);
+  const schedulerRuntime = await getSchedulerRuntimeState();
   return {
     status: "ok",
     api: "healthy",
     database: "connected",
     redis: appConfig.REDIS_URL ? "configured" : "missing",
     storage: appConfig.APP_STORAGE_PATH,
+    scheduler:
+      schedulerRuntime.lastHeartbeatAt &&
+      Date.now() - new Date(schedulerRuntime.lastHeartbeatAt).getTime() <= 90_000
+        ? "running"
+        : "stale",
   };
 }

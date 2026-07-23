@@ -4,7 +4,7 @@
 
 - Active phase: Phase 5
 - Overall status: MVP foundation is substantially implemented, and the residual hybrid mock/fallback UI backlog has now been cleared across the main web menus
-- Last update reason: default wallpaper fallback was added to settings and deployment selection so the system can revert to origin wallpaper when no campaign is active
+- Last update reason: Docker-first implementation planning was added so deployment reproducibility is closed before BullMQ migration resumes
 
 ## Phase 0 - Documentation Baseline And Repo Assessment
 
@@ -200,7 +200,7 @@ Replace mock data with live API integration for operator-critical workflows and 
 - users view now supports create, edit, and delete flows backed by protected API routes
 - history view now supports client-side search, result toggle, date-range toggle, and CSV export against deployment rows
 - route audit on 2026-07-23 initially identified residual frontend gaps in Dashboard, Wallpapers, Timeline, Deployment, History, Users, and shell affordances; those UI gaps were then implemented and re-verified on the same date, with final evidence recorded in `docs/ui-ux-wiring-audit.md`
-- residual gap: role enforcement is still backend-minimal and automated scheduler execution remains deferred
+- residual gap: role enforcement is still backend-minimal
 
 ## Phase 5 - Hardening And Release Readiness
 
@@ -234,6 +234,12 @@ Prepare the product for operational deployment.
 - [x] implement default wallpaper fallback when no campaign is active
 - [x] verify security controls
 - [x] finalize Docker Compose deployment guidance baseline
+- [ ] align `docker-compose.yml` with the current required runtime topology (`web`, `api`, `redis`, external PostgreSQL)
+- [ ] harden API and web Dockerfiles for reproducible Compose startup
+- [ ] define Prisma/database initialization flow for Docker deployment
+- [ ] run end-to-end `docker compose build` and `docker compose up` validation
+- [ ] verify scheduler, deployment, and authentication behavior inside Docker runtime
+- [ ] document the SMB / SYSVOL container-runtime failure mode precisely
 
 ### Output
 
@@ -258,6 +264,15 @@ Prepare the product for operational deployment.
   - deployment logs now support default wallpaper runs without an active campaign id
   - deleting the configured default wallpaper is blocked
   - browser verification confirmed an admin changed the default wallpaper, cancelled the last active campaign, triggered `Force redeploy`, and the latest deployment switched to `Default wallpaper` using the selected wallpaper
+- automated scheduler execution was upgraded on 2026-07-23:
+  - Fastify runtime now starts an in-process recurring scheduler loop
+  - `schedulerIntervalMinutes` now controls real automatic execution timing
+  - `queueState=PAUSED` now suppresses scheduler execution and clears `nextRunAt`
+  - dashboard scheduler status now reflects persisted heartbeat, `lastRunAt`, and `nextRunAt`
+  - runtime verification confirmed deployment count increased automatically after resume and remained unchanged while paused
+- Docker-first planning was added on 2026-07-23:
+  - `docs/docker-implementation-plan.md` now defines the execution slices required before BullMQ migration resumes
+  - next infrastructure priority is Docker reproducibility and container-runtime validation, not queue replacement
 - final dev-host preview recheck after the authenticated thumbnail bridge change was noisy because `localhost:8080` intermittently refused connections, but the database-only storage cleanup itself was validated through DB finalization, API access, and successful builds
 - residual release blockers are documented in this roadmap and supporting docs
 - production deployment baseline now assumes the existing PostgreSQL instance defined in `.env`

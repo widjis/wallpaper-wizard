@@ -535,8 +535,13 @@ paths:
                   queueState:
                     type: string
                     enum: [RUNNING, PAUSED]
+                  reason:
+                    type: string
+                    nullable: true
                   deployment:
-                    $ref: "#/components/schemas/DeploymentLog"
+                    allOf:
+                      - $ref: "#/components/schemas/DeploymentLog"
+                    nullable: true
 components:
   securitySchemes:
     bearerAuth:

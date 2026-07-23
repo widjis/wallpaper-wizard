@@ -20,7 +20,7 @@ The repository now contains:
 
 The repository still does not fully contain:
 
-- real Redis / BullMQ workers wired into runtime
+- real Redis / BullMQ workers wired into runtime, even though an in-process recurring scheduler now exists in the API runtime
 - production SMB deployment execution validated end-to-end in the target environment
 - Nginx reverse proxy
 - full RBAC and user administration workflow
@@ -179,4 +179,4 @@ cwcm/
 
 ## Immediate Recommendation
 
-Treat the repository as an implemented MVP foundation with live web/API integration, then focus the next iteration on runtime performance tuning and target-environment SMB validation rather than more core CRUD scaffolding.
+Treat the repository as an implemented MVP foundation with live web/API integration, then focus the next iteration on Docker deployment reproducibility and target-environment SMB validation before resuming BullMQ migration work.

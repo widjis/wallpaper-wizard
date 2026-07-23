@@ -31,6 +31,7 @@ The following documents define the current planning baseline:
 - `docs/open-questions-and-challenges.md`
 - `docs/existing-project-gap-analysis.md`
 - `docs/deployment-and-environment.md`
+- `docs/docker-implementation-plan.md`
 
 ## Repository Status
 
@@ -122,3 +123,4 @@ npm run lint
 - This project is connected to Lovable. Avoid rewriting published git history.
 - Do not treat current live UI wiring as proof that the PRD is fully implemented; review `docs/ui-ux-wiring-audit.md` and `docs/implementation-roadmap.md` first.
 - Before any non-trivial change, check the active phase in `docs/implementation-roadmap.md`.
+- Current infrastructure priority is Docker-first deployment hardening; BullMQ planning resumes only after the Compose baseline is validated.

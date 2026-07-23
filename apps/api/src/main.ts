@@ -3,7 +3,7 @@ import cors from "@fastify/cors";
 import multipart from "@fastify/multipart";
 import swagger from "@fastify/swagger";
 import swaggerUi from "@fastify/swagger-ui";
-import { QueueState, TriggerSource, type UserRole } from "@prisma/client";
+import { QueueState, type UserRole } from "@prisma/client";
 import { appConfig } from "./config.js";
 import { ensureSeedData } from "./prisma.js";
 import { getUserByToken } from "./repository.js";
@@ -26,7 +26,6 @@ import {
   deleteCampaignRecord,
   deleteUserRecord,
   duplicateCampaignRecord,
-  createDeploymentRecord,
   createWallpaperRecord,
   finalizeDeploymentRecord,
   getDeploymentDetail,
@@ -51,6 +50,7 @@ import {
 } from "./repository.js";
 import { publishWallpaperToSysvol } from "./smb.js";
 import { normalizeWallpaperImage } from "./services.js";
+import { runManualDeploymentNow, runSchedulerCycle, startRuntimeScheduler } from "./scheduler.js";
 
 const server = Fastify({
   logger: {
@@ -509,25 +509,28 @@ server.put("/api/settings", async (request) => {
   return updateSettingsRecord(payload, currentUser.id);
 });
 
-server.post("/api/deployments/force", async () => {
-  const created = await createDeploymentRecord({
-    triggerSource: TriggerSource.MANUAL,
-    operator: "Widji",
-  });
-  return created;
+server.post("/api/deployments/force", async (request, reply) => {
+  try {
+    return await runManualDeploymentNow();
+  } catch (error) {
+    reply.status(400);
+    return {
+      message: error instanceof Error ? error.message : "Manual deployment failed",
+    };
+  }
 });
 
 server.post("/api/scheduler/run", async () => {
-  const deployment = await createDeploymentRecord({
-    triggerSource: TriggerSource.SCHEDULER,
-    operator: "scheduler",
+  return runSchedulerCycle({
+    respectPause: true,
+    logger: server.log,
   });
-  const queueState = await getQueueState();
-  return {
-    accepted: true,
-    queueState,
-    deployment,
-  };
+});
+
+const runtimeScheduler = startRuntimeScheduler(server.log);
+
+server.addHook("onClose", async () => {
+  runtimeScheduler.stop();
 });
 
 await server.listen({

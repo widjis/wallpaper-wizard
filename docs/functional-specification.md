@@ -118,8 +118,11 @@ Target behavior:
 Current state:
 
 - manual scheduler trigger endpoint exists
+- an in-process runtime scheduler now executes recurring cycles based on `schedulerIntervalMinutes`
 - deployment source selection now follows `active campaign -> eligible scheduled campaign -> configured default wallpaper`
-- automated recurring worker is not yet implemented with BullMQ or cron-backed production flow
+- queue pause now suppresses automatic scheduler execution and clears the next scheduled run
+- scheduler health, last run, and next run are now derived from persisted runtime heartbeat metadata
+- Redis / BullMQ-backed worker orchestration is still not implemented
 
 ### 7. Deployment Engine
 
