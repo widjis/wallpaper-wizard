@@ -43,7 +43,7 @@ Required keys observed in `.env`:
 Usage notes:
 
 - `POSTGRES_URL` should be treated as the primary connection string
-- the application should avoid duplicating config sources unless needed for migration or admin scripts
+- the application derives the final runtime URL from `POSTGRES_URL` and uses `POSTGRES_USERNAME` plus `POSTGRES_PASSWORD` as credential overrides when provided
 - production deployment should connect to the existing PostgreSQL instance defined in `.env`
 - Docker Compose in this repository does not start an internal PostgreSQL container for production use
 

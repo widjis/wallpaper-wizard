@@ -120,6 +120,26 @@ paths:
       responses:
         "204":
           description: Wallpaper deleted
+  /wallpapers/{wallpaperId}/image:
+    get:
+      tags: [Wallpapers]
+      summary: Get normalized wallpaper image bytes
+      parameters:
+        - $ref: "#/components/parameters/WallpaperId"
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Wallpaper image stream
+          headers:
+            ETag:
+              schema:
+                type: string
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
   /campaigns:
     get:
       tags: [Campaigns]
@@ -199,20 +219,47 @@ paths:
     post:
       tags: [Campaigns]
       summary: Activate campaign immediately
+      security:
+        - bearerAuth: []
       parameters:
         - $ref: "#/components/parameters/CampaignId"
       responses:
-        "202":
-          description: Activation accepted
+        "200":
+          description: Campaign activated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Campaign"
   /campaigns/{campaignId}/cancel:
     post:
       tags: [Campaigns]
       summary: Cancel campaign
+      security:
+        - bearerAuth: []
       parameters:
         - $ref: "#/components/parameters/CampaignId"
       responses:
-        "202":
-          description: Cancellation accepted
+        "200":
+          description: Campaign cancelled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Campaign"
+  /campaigns/{campaignId}/duplicate:
+    post:
+      tags: [Campaigns]
+      summary: Duplicate campaign as draft
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/CampaignId"
+      responses:
+        "201":
+          description: Campaign duplicated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Campaign"
   /queue:
     get:
       tags: [Queue]
@@ -267,6 +314,26 @@ paths:
       responses:
         "200":
           description: Resume accepted
+  /queue/{campaignId}:
+    delete:
+      tags: [Queue]
+      summary: Remove campaign from queue
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/CampaignId"
+      responses:
+        "200":
+          description: Queue updated after removal
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/QueueEntry"
   /deployments:
     get:
       tags: [Deployments]
@@ -400,6 +467,55 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/User"
+    post:
+      tags: [Auth]
+      summary: Create user
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateUserRequest"
+      responses:
+        "201":
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+  /users/{userId}:
+    patch:
+      tags: [Auth]
+      summary: Update user
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateUserRequest"
+      responses:
+        "200":
+          description: User updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+    delete:
+      tags: [Auth]
+      summary: Delete user
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+      responses:
+        "204":
+          description: User deleted
   /scheduler/run:
     post:
       tags: [Deployments]
@@ -449,6 +565,13 @@ components:
       schema:
         type: string
         format: uuid
+    UserId:
+      name: userId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
   schemas:
     LoginRequest:
       type: object
@@ -478,6 +601,36 @@ components:
           enum: [ADMINISTRATOR, OPERATOR, VIEWER]
         isActive:
           type: boolean
+        lastLoginAt:
+          type: string
+          format: date-time
+          nullable: true
+    CreateUserRequest:
+      type: object
+      required: [username, password, role, isActive]
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+        role:
+          type: string
+          enum: [ADMINISTRATOR, OPERATOR, VIEWER]
+        isActive:
+          type: boolean
+    UpdateUserRequest:
+      type: object
+      required: [username, role, isActive]
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+        role:
+          type: string
+          enum: [ADMINISTRATOR, OPERATOR, VIEWER]
+        isActive:
+          type: boolean
     Wallpaper:
       type: object
       properties:
@@ -497,9 +650,17 @@ components:
             type: string
         resolution:
           type: string
+        width:
+          type: integer
+        height:
+          type: integer
         sizeBytes:
           type: integer
         checksumSha256:
+          type: string
+        mimeType:
+          type: string
+        imageUrl:
           type: string
         uploadedAt:
           type: string

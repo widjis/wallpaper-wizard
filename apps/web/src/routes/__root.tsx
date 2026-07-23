@@ -12,6 +12,7 @@ import { useEffect, type ReactNode } from "react";
 import appCss from "../styles.css?url";
 import { AuthProvider, useAuth } from "../lib/auth";
 import { reportLovableError } from "../lib/lovable-error-reporting";
+import { Toaster } from "../components/ui/sonner";
 
 function NotFoundComponent() {
   return (
@@ -116,6 +117,7 @@ function RootShell({ children }: { children: ReactNode }) {
       </head>
       <body>
         {children}
+        <Toaster richColors position="top-right" />
         <Scripts />
       </body>
     </html>
@@ -136,17 +138,24 @@ function RootComponent() {
 
 function ProtectedOutlet() {
   const router = useRouter();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isReady } = useAuth();
   const pathname = router.state.location.pathname;
 
   useEffect(() => {
+    if (!isReady) {
+      return;
+    }
     if (!isAuthenticated && pathname !== "/login") {
       void router.navigate({ to: "/login" });
     }
     if (isAuthenticated && pathname === "/login") {
       void router.navigate({ to: "/" });
     }
-  }, [isAuthenticated, pathname, router]);
+  }, [isAuthenticated, isReady, pathname, router]);
+
+  if (!isReady) {
+    return null;
+  }
 
   return <Outlet />;
 }

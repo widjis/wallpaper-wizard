@@ -109,17 +109,69 @@ The PRD requires file existence, size, modified date, and checksum verification.
 
 The repository contains runtime environment variables for database, domain, SMB, and LDAP connectivity. Documentation may reference the required environment keys, but must not copy secrets into committed source files.
 
-### 6. External PostgreSQL Credential Mismatch
+### 6. External PostgreSQL Credential Resolution
 
-Observed blocker:
+Resolved finding:
 
-- schema apply against the external PostgreSQL instance failed with Prisma error `P1000`
-- the connection string currently resolved from `.env` authenticates as `postgres`, but the server rejected those credentials for `wallpaperWizardDB`
+- `.env` already contained the correct database credentials
+- runtime scripts originally preferred credentials embedded inside `POSTGRES_URL`
+- the repository was updated so `POSTGRES_USERNAME` and `POSTGRES_PASSWORD` override the credentials embedded in `POSTGRES_URL` when present
+
+Verification:
+
+- `npm run db:prepare` passed
+- `npm run prisma:push` passed against `wallpaperWizardDB`
+
+### 7. Browser Runtime Defects During Hardening
+
+Resolved finding:
+
+- authenticated browser flows for campaign update and settings save originally failed even though the endpoints existed
+- the root causes were an async auth lookup bug in the Fastify pre-handler and missing explicit CORS method/header allowances for `PUT` and `PATCH`
+- the repository was updated so protected routes await token resolution correctly and browser preflight for `PUT` and `PATCH` is explicitly allowed
+
+Verification:
+
+- browser retest passed for campaign edit and settings save on 2026-07-23
+- direct API calls also passed for campaign create, campaign update, and settings update
+
+### 8. SYSVOL Verification In Current Workspace
+
+Observed limitation:
+
+- the deployment verification flow now completes in the UI and records a structured result even when the underlying SMB publish fails
+- the current workspace still reports `the share is not valid` when verifying against the configured SYSVOL target
 
 Impact:
 
-- database schema could not be pushed to the target environment from this workspace
-- API runtime code is prepared for PostgreSQL-backed operation, but end-to-end persistence cannot be declared verified until valid credentials are provided
+- operator UX is now stable enough to surface deployment outcomes instead of raw request failures
+- true end-to-end SYSVOL validation remains pending until the target environment exposes a valid share path and access model
+
+### 9. Wallpaper Storage Migration
+
+Resolved implementation decision:
+
+- wallpaper binaries are now stored as PostgreSQL blobs instead of filesystem-only source files
+- the API normalizes every uploaded wallpaper to JPG Full HD `1920x1080`
+- when the normalized JPG exceeds `2 MB`, the backend lowers output quality before persisting the blob
+
+Operational note:
+
+- the migration has now been finalized to full database-only storage after explicit backfill and SQL finalization
+- existing environments still avoided destructive reset because the migration was completed through staged backfill first, then legacy column removal
+
+### 10. Frontend Route Stability During Auth Hydration
+
+Resolved finding:
+
+- several protected routes intermittently appeared to "bounce" back to the dashboard or login screen during browser verification
+- the root cause was that the auth provider restored session state from local storage inside `useEffect`, while route protection logic redirected before auth readiness was established
+- the web app was updated to expose an explicit auth-ready state and defer protected-route redirects until auth hydration completes
+
+Verification:
+
+- browser retest passed for `/campaigns`, `/timeline`, `/deployment`, `/history`, `/users`, and `/settings` without the previous route instability
+- timeline duplicate force-deploy control and dashboard duplicate-key warning were also cleaned up in the same work item
 
 ## Tracking Rule
 

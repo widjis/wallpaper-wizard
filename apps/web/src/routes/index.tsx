@@ -338,7 +338,7 @@ function Dashboard() {
             </div>
             <ul className="space-y-3">
               {recentActivity.map((a) => (
-                <li key={a.title + a.detail} className="flex items-start gap-3">
+                <li key={a.id} className="flex items-start gap-3">
                   <div className="h-8 w-8 rounded-md bg-muted flex items-center justify-center shrink-0">
                     <Activity className="h-4 w-4 text-muted-foreground" />
                   </div>

@@ -1,4 +1,3 @@
-import fs from "node:fs/promises";
 import path from "node:path";
 import SMB2 from "smb2";
 import { buildChecksum } from "./services.js";
@@ -76,12 +75,11 @@ async function writeRemoteFile(remotePath: string, buffer: Buffer) {
 }
 
 export async function publishWallpaperToSysvol(payload: {
-  storagePath: string;
+  imageData: Buffer;
   targetFilename: string;
 }) {
-  const localBuffer = await fs.readFile(payload.storagePath);
   const remotePath = toRemotePath(payload.targetFilename);
-  const remoteBuffer = await writeRemoteFile(remotePath, localBuffer);
+  const remoteBuffer = await writeRemoteFile(remotePath, payload.imageData);
 
   return {
     remotePath,

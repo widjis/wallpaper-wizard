@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { AppLayout } from "@/components/app-layout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -46,6 +47,10 @@ function Page() {
       setForm(payload);
       queryClient.invalidateQueries({ queryKey: ["settings"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard-summary"] });
+      toast.success("Settings saved");
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : "Failed to save settings");
     },
   });
 
@@ -134,11 +139,16 @@ function Page() {
       </div>
 
       <div className="mt-6 flex gap-3">
-        <Button onClick={() => saveMutation.mutate(form)}>Save changes</Button>
+        <Button onClick={() => saveMutation.mutate(form)} disabled={saveMutation.isPending}>
+          {saveMutation.isPending ? "Saving..." : "Save changes"}
+        </Button>
         <Button variant="outline" onClick={() => data && setForm(data)}>
           Reset
         </Button>
       </div>
+      {saveMutation.isSuccess ? (
+        <div className="mt-3 text-sm text-success">Settings saved successfully.</div>
+      ) : null}
     </AppLayout>
   );
 }

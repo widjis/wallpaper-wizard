@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Rocket, RefreshCw, CheckCircle2 } from "lucide-react";
+import { toast } from "sonner";
 import { AppLayout } from "@/components/app-layout";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -46,12 +47,28 @@ function Page() {
 
   const verifyMutation = useMutation({
     mutationFn: () =>
-      latest ? apiPost(`/deployments/${latest.id}/verify`) : Promise.resolve(null),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["deployments"] }),
+      latest
+        ? apiPost(`/deployments/${latest.id}/verify`)
+        : Promise.reject(new Error("No deployment available to verify")),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["deployments"] });
+      toast.success("SYSVOL verification completed");
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : "Verification failed");
+    },
   });
 
   const forceMutation = useMutation({
     mutationFn: () => apiPost("/deployments/force"),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["deployments"] });
+      queryClient.invalidateQueries({ queryKey: ["history"] });
+      toast.success("Manual deployment triggered");
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : "Deployment trigger failed");
+    },
   });
 
   return (
@@ -87,15 +104,24 @@ function Page() {
           </div>
 
           <div className="mt-6 flex gap-3">
-            <Button onClick={() => forceMutation.mutate()}>
+            <Button onClick={() => forceMutation.mutate()} disabled={forceMutation.isPending}>
               <Rocket className="h-4 w-4 mr-2" />
-              Force redeploy
+              {forceMutation.isPending ? "Starting..." : "Force redeploy"}
             </Button>
-            <Button variant="outline" onClick={() => verifyMutation.mutate()}>
+            <Button
+              variant="outline"
+              onClick={() => verifyMutation.mutate()}
+              disabled={verifyMutation.isPending || !latest}
+            >
               <RefreshCw className="h-4 w-4 mr-2" />
-              Verify SYSVOL
+              {verifyMutation.isPending ? "Verifying..." : "Verify SYSVOL"}
             </Button>
           </div>
+          {latest?.message ? (
+            <div className="mt-4 text-sm text-muted-foreground">
+              Latest status: {latest.message}
+            </div>
+          ) : null}
         </div>
 
         <div className="rounded-xl border border-border bg-card p-6">

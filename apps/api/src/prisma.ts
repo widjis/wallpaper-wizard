@@ -7,7 +7,10 @@ import {
   UserRole,
 } from "@prisma/client";
 import bcrypt from "bcryptjs";
+import fs from "node:fs/promises";
+import path from "node:path";
 import { appConfig } from "./config.js";
+import { buildChecksum } from "./services.js";
 
 export const prisma = new PrismaClient();
 
@@ -24,25 +27,80 @@ const defaultSettings = {
   autoRetryFailedDeployments: true,
 };
 
+const seedWallpaperFiles = [
+  {
+    filename: "Safety_Awareness_2026.jpg",
+    sourceAsset: "wallpaper-safety.jpg",
+  },
+  {
+    filename: "Independence_Day_2026.jpg",
+    sourceAsset: "wallpaper-independence.jpg",
+  },
+  {
+    filename: "Anniversary_25.jpg",
+    sourceAsset: "wallpaper-anniversary.jpg",
+  },
+] as const;
+
+async function ensureSeedWallpaperFiles() {
+  const storageDir = path.resolve(process.cwd(), appConfig.APP_STORAGE_PATH);
+  const assetDir = path.resolve(process.cwd(), "../web/src/assets");
+
+  await fs.mkdir(storageDir, { recursive: true });
+
+  await Promise.all(
+    seedWallpaperFiles.map(async ({ filename, sourceAsset }) => {
+      const targetPath = path.join(storageDir, filename);
+
+      try {
+        await fs.access(targetPath);
+      } catch {
+        await fs.copyFile(path.join(assetDir, sourceAsset), targetPath);
+      }
+    }),
+  );
+}
+
+async function buildSeedWallpaperPayload(sourceAsset: string, filename: string) {
+  const assetPath = path.resolve(process.cwd(), "../web/src/assets", sourceAsset);
+  const imageData = await fs.readFile(assetPath);
+
+  return {
+    filename,
+    imageData,
+    resolution: "1920x1080",
+    width: 1920,
+    height: 1080,
+    sizeBytes: imageData.byteLength,
+    checksumSha256: buildChecksum(imageData),
+    mimeType: "image/jpeg",
+  };
+}
+
 export async function ensureSeedData() {
+  await ensureSeedWallpaperFiles();
   const adminPasswordHash = await bcrypt.hash(appConfig.AUTH_SEED_ADMIN_PASSWORD, 10);
+  const operatorPasswordHash = await bcrypt.hash(
+    appConfig.LDAP_PASS ?? appConfig.AUTH_SEED_ADMIN_PASSWORD,
+    10,
+  );
 
   const admin = await prisma.user.upsert({
-    where: { username: "Widji" },
+    where: { username: appConfig.AUTH_SEED_ADMIN_USERNAME },
     update: {},
     create: {
-      username: "Widji",
+      username: appConfig.AUTH_SEED_ADMIN_USERNAME,
       passwordHash: adminPasswordHash,
       role: UserRole.ADMINISTRATOR,
     },
   });
 
   const operator = await prisma.user.upsert({
-    where: { username: "Rian Pratama" },
+    where: { username: appConfig.LDAP_USER ?? "Rian Pratama" },
     update: {},
     create: {
-      username: "Rian Pratama",
-      passwordHash: adminPasswordHash,
+      username: appConfig.LDAP_USER ?? "Rian Pratama",
+      passwordHash: operatorPasswordHash,
       role: UserRole.OPERATOR,
     },
   });
@@ -77,17 +135,32 @@ export async function ensureSeedData() {
   });
 
   if (!existingWallpaper) {
+    const safetyWallpaper = await buildSeedWallpaperPayload(
+      "wallpaper-safety.jpg",
+      "Safety_Awareness_2026.jpg",
+    );
+    const independenceWallpaper = await buildSeedWallpaperPayload(
+      "wallpaper-independence.jpg",
+      "Independence_Day_2026.jpg",
+    );
+    const anniversaryWallpaper = await buildSeedWallpaperPayload(
+      "wallpaper-anniversary.jpg",
+      "Anniversary_25.jpg",
+    );
+
     const wallpaper1 = await prisma.wallpaper.create({
       data: {
         title: "Safety Awareness 2026",
-        filename: "Safety_Awareness_2026.jpg",
-        storagePath: `${appConfig.APP_STORAGE_PATH}/Safety_Awareness_2026.jpg`,
+        filename: safetyWallpaper.filename,
         description: "Monthly safety campaign",
         tags: ["safety", "monthly"],
-        resolution: "1920x1080",
-        sizeBytes: 2400000,
-        checksumSha256: "a1b2c3d4e5f6",
-        mimeType: "image/jpeg",
+        resolution: safetyWallpaper.resolution,
+        width: safetyWallpaper.width,
+        height: safetyWallpaper.height,
+        sizeBytes: safetyWallpaper.sizeBytes,
+        checksumSha256: safetyWallpaper.checksumSha256,
+        mimeType: safetyWallpaper.mimeType,
+        imageData: safetyWallpaper.imageData,
         uploadedById: admin.id,
       },
     });
@@ -95,14 +168,16 @@ export async function ensureSeedData() {
     const wallpaper2 = await prisma.wallpaper.create({
       data: {
         title: "Independence Day",
-        filename: "Independence_Day_2026.jpg",
-        storagePath: `${appConfig.APP_STORAGE_PATH}/Independence_Day_2026.jpg`,
+        filename: independenceWallpaper.filename,
         description: "National celebration wallpaper",
         tags: ["holiday"],
-        resolution: "1920x1080",
-        sizeBytes: 1800000,
-        checksumSha256: "b1c2d3e4f5g6",
-        mimeType: "image/jpeg",
+        resolution: independenceWallpaper.resolution,
+        width: independenceWallpaper.width,
+        height: independenceWallpaper.height,
+        sizeBytes: independenceWallpaper.sizeBytes,
+        checksumSha256: independenceWallpaper.checksumSha256,
+        mimeType: independenceWallpaper.mimeType,
+        imageData: independenceWallpaper.imageData,
         uploadedById: admin.id,
       },
     });
@@ -110,14 +185,16 @@ export async function ensureSeedData() {
     const wallpaper3 = await prisma.wallpaper.create({
       data: {
         title: "Company Anniversary 25",
-        filename: "Anniversary_25.jpg",
-        storagePath: `${appConfig.APP_STORAGE_PATH}/Anniversary_25.jpg`,
+        filename: anniversaryWallpaper.filename,
         description: "Company celebration wallpaper",
         tags: ["anniversary"],
-        resolution: "1920x1080",
-        sizeBytes: 2100000,
-        checksumSha256: "c1d2e3f4g5h6",
-        mimeType: "image/jpeg",
+        resolution: anniversaryWallpaper.resolution,
+        width: anniversaryWallpaper.width,
+        height: anniversaryWallpaper.height,
+        sizeBytes: anniversaryWallpaper.sizeBytes,
+        checksumSha256: anniversaryWallpaper.checksumSha256,
+        mimeType: anniversaryWallpaper.mimeType,
+        imageData: anniversaryWallpaper.imageData,
         uploadedById: admin.id,
       },
     });
@@ -182,8 +259,8 @@ export async function ensureSeedData() {
         targetPath: defaultSettings.sysvolPath,
         targetFilename: defaultSettings.wallpaperFilename,
         verifiedExists: true,
-        verifiedSizeBytes: 2400000,
-        verifiedChecksumSha256: "a1b2c3d4e5f6",
+        verifiedSizeBytes: safetyWallpaper.sizeBytes,
+        verifiedChecksumSha256: safetyWallpaper.checksumSha256,
       },
     });
 
@@ -217,6 +294,5 @@ export async function ensureSeedData() {
       updatedById: admin.id,
     },
   });
-
   void viewer;
 }

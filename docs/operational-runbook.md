@@ -24,9 +24,12 @@ Provide the minimum operating procedure for deploying, validating, and rolling b
 3. Confirm dashboard data loads
 4. Upload a wallpaper
 5. Create a campaign from the web UI
-6. Trigger manual deployment
-7. Trigger deployment verification
-8. Confirm deployment history and activity log entries exist
+6. Edit the campaign and confirm the update persists after list refresh
+7. Pause and resume the queue from the web UI
+8. Save a settings change and confirm the updated value reloads
+9. Trigger manual deployment
+10. Trigger deployment verification
+11. Confirm deployment history and activity log entries exist
 
 ## Rollback Baseline
 
@@ -38,12 +41,14 @@ If a release must be rolled back:
 4. Confirm the external PostgreSQL schema remains compatible before bringing the previous API build back online
 5. Re-run login, dashboard, and deployment smoke checks
 
-## Current Known Blocker
+## Current Known Blockers
 
-- The latest repository version is ready for schema application, but `npm run prisma:push` currently fails with Prisma error `P1000` because the external PostgreSQL credentials resolved from `.env` are rejected by the target server.
+- dashboard and settings response baselines in this workspace are still slightly above the PRD target of `< 2 seconds`
+- SYSVOL verification currently returns a structured failed result with message `the share is not valid`, so target-environment SMB validation is not yet closed
 
 ## Operator Notes
 
 - Do not commit secret values into repository docs
 - Keep SYSVOL deployment verification limited to controlled test assets until the environment is confirmed stable
 - Revalidate SMB access whenever domain credentials or target paths change
+- if deployment verification returns `FAILED`, review the stored deployment message before retrying so transport and share issues are visible to operators

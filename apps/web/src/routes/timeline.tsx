@@ -1,10 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Pause, Play, GripVertical, X, Rocket } from "lucide-react";
+import { Pause, Play, ArrowUp, ArrowDown, X, Rocket } from "lucide-react";
+import { toast } from "sonner";
 import { AppLayout } from "@/components/app-layout";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { apiGet, apiPost } from "@/lib/api";
+import { apiDelete, apiGet, apiPost } from "@/lib/api";
 import type { QueueItem } from "@cwcm/types";
 import safetyImg from "@/assets/wallpaper-safety.jpg";
 import independenceImg from "@/assets/wallpaper-independence.jpg";
@@ -63,16 +64,73 @@ function Page() {
 
   const pauseMutation = useMutation({
     mutationFn: () => apiPost("/queue/pause"),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["queue"] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["queue"] });
+      toast.success("Queue paused");
+    },
   });
 
   const resumeMutation = useMutation({
     mutationFn: () => apiPost("/queue/resume"),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["queue"] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["queue"] });
+      toast.success("Queue resumed");
+    },
+  });
+
+  const forceDeployMutation = useMutation({
+    mutationFn: () => apiPost("/deployments/force"),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["deployments"] });
+      toast.success("Manual deployment triggered");
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : "Failed to trigger deployment");
+    },
+  });
+
+  const removeMutation = useMutation({
+    mutationFn: (campaignId: string) => apiDelete(`/queue/${campaignId}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["queue"] });
+      queryClient.invalidateQueries({ queryKey: ["campaigns"] });
+      toast.success("Queue item removed");
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : "Failed to remove queue item");
+    },
+  });
+
+  const reorderMutation = useMutation({
+    mutationFn: (campaignIds: string[]) => apiPost("/queue/reorder", { campaignIds }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["queue"] });
+      toast.success("Queue order updated");
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : "Failed to reorder queue");
+    },
   });
 
   const queueRows = data?.items ?? queue;
   const queueState = data?.state ?? "RUNNING";
+
+  function moveQueueItem(index: number, direction: -1 | 1) {
+    if (!data?.items) {
+      toast.info("Reorder is available for live queue only");
+      return;
+    }
+
+    const targetIndex = index + direction;
+    if (targetIndex < 0 || targetIndex >= data.items.length) {
+      return;
+    }
+
+    const reordered = [...data.items];
+    const [item] = reordered.splice(index, 1);
+    reordered.splice(targetIndex, 0, item);
+    reorderMutation.mutate(reordered.map((entry) => entry.campaignId));
+  }
 
   return (
     <AppLayout title="Timeline & Queue" subtitle="Deployment order of upcoming campaigns">
@@ -85,14 +143,25 @@ function Page() {
           </div>
         </div>
         <div className="flex-1" />
-        <Button variant="outline" onClick={() => pauseMutation.mutate()}>
-          <Pause className="h-4 w-4 mr-2" />
-          Pause Queue
-        </Button>
-        <Button variant="outline" onClick={() => resumeMutation.mutate()}>
-          <Play className="h-4 w-4 mr-2" />
-          Resume
-        </Button>
+        {queueState === "RUNNING" ? (
+          <Button
+            variant="outline"
+            onClick={() => pauseMutation.mutate()}
+            disabled={pauseMutation.isPending}
+          >
+            <Pause className="h-4 w-4 mr-2" />
+            {pauseMutation.isPending ? "Pausing..." : "Pause Queue"}
+          </Button>
+        ) : (
+          <Button
+            variant="outline"
+            onClick={() => resumeMutation.mutate()}
+            disabled={resumeMutation.isPending}
+          >
+            <Play className="h-4 w-4 mr-2" />
+            {resumeMutation.isPending ? "Resuming..." : "Resume"}
+          </Button>
+        )}
       </div>
 
       <div className="rounded-xl border border-border bg-card p-6">
@@ -131,14 +200,43 @@ function Page() {
                 </Badge>
               ) : (
                 <>
-                  <Button size="sm" variant="outline">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => forceDeployMutation.mutate()}
+                    disabled={forceDeployMutation.isPending}
+                  >
                     <Rocket className="h-3.5 w-3.5 mr-1.5" />
-                    Force deploy
+                    {forceDeployMutation.isPending ? "Starting..." : "Force deploy"}
                   </Button>
-                  <Button size="sm" variant="ghost">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => ("campaignId" in q ? removeMutation.mutate(q.campaignId) : null)}
+                    disabled={!("campaignId" in q) || removeMutation.isPending}
+                  >
                     <X className="h-4 w-4" />
                   </Button>
-                  <GripVertical className="h-4 w-4 text-muted-foreground cursor-grab" />
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => moveQueueItem(i, -1)}
+                    disabled={!("campaignId" in q) || reorderMutation.isPending || i === 0}
+                  >
+                    <ArrowUp className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => moveQueueItem(i, 1)}
+                    disabled={
+                      !("campaignId" in q) ||
+                      reorderMutation.isPending ||
+                      i === queueRows.length - 1
+                    }
+                  >
+                    <ArrowDown className="h-4 w-4" />
+                  </Button>
                 </>
               )}
             </div>

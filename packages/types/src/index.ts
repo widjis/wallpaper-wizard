@@ -16,6 +16,13 @@ export interface UserSummary {
   lastLoginAt: string | null;
 }
 
+export interface UserMutationPayload {
+  username: string;
+  password?: string;
+  role: UserRole;
+  isActive: boolean;
+}
+
 export interface WallpaperSummary {
   id: string;
   title: string;
@@ -23,8 +30,12 @@ export interface WallpaperSummary {
   description: string | null;
   tags: string[];
   resolution: string;
+  width: number;
+  height: number;
   sizeBytes: number;
   checksumSha256: string;
+  mimeType: string;
+  imageUrl: string;
   uploadedAt: string;
   usageStatus: "IN_USE" | "SCHEDULED" | "DRAFT";
 }

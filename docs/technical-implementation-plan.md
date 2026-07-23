@@ -15,6 +15,8 @@ The repository now contains:
 - a Prisma schema in `prisma/schema.prisma`
 - a Prisma-backed runtime repository layer against the external PostgreSQL configured in `.env`
 - a Docker Compose baseline and Dockerfiles for web and api that assume an external PostgreSQL instance from `.env`
+- browser-verified campaign edit, settings persistence, queue control, and deployment verification flows
+- a normalized wallpaper pipeline that stores JPG Full HD image blobs directly in PostgreSQL instead of relying on filesystem-only source storage
 
 The repository still does not fully contain:
 
@@ -22,6 +24,7 @@ The repository still does not fully contain:
 - production SMB deployment execution validated end-to-end in the target environment
 - Nginx reverse proxy
 - full RBAC and user administration workflow
+- performance tuning sufficient to meet the PRD dashboard target of under 2 seconds in the current workspace
 
 ## Target Architecture
 
@@ -176,4 +179,4 @@ cwcm/
 
 ## Immediate Recommendation
 
-Treat the repository as an implemented MVP foundation with live web/API integration, then resolve the external PostgreSQL credential mismatch and complete infra validation for SMB publishing and hardening.
+Treat the repository as an implemented MVP foundation with live web/API integration, then focus the next iteration on runtime performance tuning and target-environment SMB validation rather than more core CRUD scaffolding.

@@ -2,13 +2,13 @@
 
 ## Purpose
 
-This document defines the target logical database model for CWCM. The current repository does not yet implement a database or Prisma schema.
+This document defines the target logical database model for CWCM.
 
 ## Current State
 
-- no PostgreSQL schema is present in the repository
-- no Prisma models or migrations exist
-- all UI data is currently mock data
+- PostgreSQL schema and Prisma models are implemented in the repository
+- the wallpaper storage model now keeps normalized image blobs directly in PostgreSQL
+- web UI flows are connected to live API data for the implemented MVP scope
 
 ## Design Principles
 
@@ -34,21 +34,23 @@ This document defines the target logical database model for CWCM. The current re
 
 ### Wallpaper
 
-| Field          | Type              | Notes                  |
-| -------------- | ----------------- | ---------------------- |
-| id             | UUID              | Primary key            |
-| title          | String            | Human-readable name    |
-| filename       | String            | Stored source filename |
-| storagePath    | String            | Internal storage path  |
-| description    | Text nullable     | Description            |
-| tags           | String array      | Search tags            |
-| resolution     | String            | Example `1920x1080`    |
-| sizeBytes      | BigInt            | File size              |
-| checksumSha256 | String            | Integrity value        |
-| mimeType       | String            | Example `image/jpeg`   |
-| uploadedById   | UUID              | FK to User             |
-| uploadedAt     | DateTime          | Upload timestamp       |
-| deletedAt      | DateTime nullable | Soft delete            |
+| Field          | Type              | Notes                                        |
+| -------------- | ----------------- | -------------------------------------------- |
+| id             | UUID              | Primary key                                  |
+| title          | String            | Human-readable name                          |
+| filename       | String            | Normalized stored filename, always `.jpg`    |
+| description    | Text nullable     | Description                                  |
+| tags           | String array      | Search tags                                  |
+| resolution     | String            | Fixed `1920x1080` for normalized wallpapers  |
+| width          | Int               | Stored pixel width                           |
+| height         | Int               | Stored pixel height                          |
+| sizeBytes      | BigInt            | Final normalized file size                   |
+| checksumSha256 | String            | Integrity value for normalized image         |
+| mimeType       | String            | Always `image/jpeg` after normalization      |
+| imageData      | Bytes             | Binary JPG wallpaper blob stored in database |
+| uploadedById   | UUID              | FK to User                                   |
+| uploadedAt     | DateTime          | Upload timestamp                             |
+| deletedAt      | DateTime nullable | Soft delete                                  |
 
 ### Campaign
 
@@ -188,3 +190,13 @@ Before implementation:
 - confirm whether tags will be stored as native PostgreSQL arrays or normalized labels
 - confirm whether deleted wallpapers remain deployable by historical deployments
 - confirm retention and archival strategy for deployment and activity logs
+- keep wallpaper normalization rules aligned with application behavior:
+  - convert every uploaded wallpaper to JPG
+  - normalize every uploaded wallpaper to Full HD `1920x1080`
+  - reduce JPG quality when the normalized output exceeds `2 MB`
+
+## Current Storage Mode
+
+- wallpaper storage is now fully database-only
+- filesystem source fallback has been removed from the target model
+- deployment publishing reads wallpaper bytes from PostgreSQL blob data

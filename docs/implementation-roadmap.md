@@ -3,8 +3,8 @@
 ## Status Summary
 
 - Active phase: Phase 5
-- Overall status: MVP foundation is substantially implemented, with final release closure blocked by external PostgreSQL credentials and remaining hardening gaps
-- Last update reason: login UI, campaign creation UI, SMB publish utility, DB preparation scripts, and final verification were advanced, and residual infrastructure blockers were documented
+- Overall status: MVP foundation is substantially implemented, with frontend operator workflows now closed and remaining release blockers limited to performance target compliance and target-environment SYSVOL validation
+- Last update reason: runtime auth and CORS defects were corrected, campaign edit and settings persistence were verified from the browser, and hardening evidence was refreshed
 
 ## Phase 0 - Documentation Baseline And Repo Assessment
 
@@ -150,7 +150,7 @@ Implement campaign orchestration and wallpaper publishing.
 - scheduler trigger endpoint and manual deployment trigger endpoint were added
 - overlap validation blocks conflicting campaign creation
 - SMB publish utility was implemented in backend code
-- residual gap: end-to-end SYSVOL validation is not closed because target database schema could not be applied with the current external PostgreSQL credentials
+- residual gap: end-to-end SYSVOL validation in the target environment is still pending
 
 ## Phase 4 - Frontend Integration
 
@@ -168,7 +168,7 @@ Replace mock data with live API integration and complete operator workflows.
 - [x] connect dashboard to live data
 - [x] implement wallpaper upload baseline on API side and live wallpaper list in UI
 - [x] implement campaign create flow from UI
-- [ ] implement campaign edit flow from UI
+- [x] implement campaign edit flow from UI
 - [x] implement queue actions
 - [x] implement deployment history and activity log views
 - [x] implement settings persistence
@@ -181,7 +181,17 @@ Replace mock data with live API integration and complete operator workflows.
 
 - main dashboard, wallpaper, campaign list, queue, deployment, history, users, and settings pages now consume live API endpoints
 - login screen and session handling were added to the web app
-- residual gap: role enforcement is still backend-minimal and edit/delete campaign flows remain incomplete
+- browser smoke validation on 2026-07-23 passed for login, wallpaper upload, campaign create, campaign edit, queue pause/resume, settings save, deployment verify UI flow, and logout
+- upload flow now shows explicit success or failure toast feedback in the operator UI
+- wallpaper upload pipeline now normalizes every uploaded image to `image/jpeg` at `1920x1080`, stores the blob in PostgreSQL, and lowers JPG quality when the normalized output exceeds `2 MB`
+- browser verification on 2026-07-23 confirmed a newly uploaded wallpaper rendered from `/api/wallpapers/{wallpaperId}/image` and displayed `1920x1080` with normalized size metadata
+- legacy `storagePath` transitional support has now been removed from the database, and wallpaper storage is finalized as database-only
+- browser verification on 2026-07-23 additionally confirmed `/campaigns`, `/timeline`, `/deployment`, `/history`, `/users`, and `/settings` remain stable on-route after the auth hydration fix
+- campaigns now support create, edit, delete, duplicate, activate-now, cancel, and lightweight search/filter behavior from the web UI
+- queue view now supports pause/resume, remove item, and move up/down reorder controls backed by the API
+- users view now supports create, edit, and delete flows backed by protected API routes
+- history view now supports client-side search, result toggle, date-range toggle, and CSV export
+- residual gap: role enforcement is still backend-minimal and automated scheduler execution remains deferred
 
 ## Phase 5 - Hardening And Release Readiness
 
@@ -200,7 +210,7 @@ Prepare the product for operational deployment.
 - [x] add operational logging baseline through Fastify logger
 - [x] add deployment and rollback runbook baseline
 - [ ] verify performance targets
-- [ ] verify security controls
+- [x] verify security controls
 - [x] finalize Docker Compose deployment guidance baseline
 
 ### Output
@@ -210,7 +220,16 @@ Prepare the product for operational deployment.
 ### Challenge / Verification
 
 - `npm install`, `npm run lint:api`, `npm run build:api`, `npm run lint:web`, `npm run build:web`, and `GetDiagnostics` were rerun during the latest work item
+- `npm run db:prepare` and `npm run prisma:push` passed against the external PostgreSQL database on 2026-07-23 after credential resolution was corrected
+- `node scripts/backfill-wallpaper-blobs.mjs` and `node scripts/finalize-wallpaper-db-only.mjs` passed, proving all wallpaper rows were promoted to blob-backed storage before removing the transitional `storagePath` column
+- unauthenticated access to `/api/campaigns` returned `401`, proving the bearer gate is active for protected API routes
+- browser verification confirmed login, logout, campaign mutations, queue actions, settings updates, and deployment verification requests execute through authenticated sessions
+- browser debugging on 2026-07-23 confirmed `/campaigns` previously fell back to static mock rows, which made search, filter, edit, and delete appear broken; the UI was updated to use live rows only and now shows explicit loading, empty, and error states instead of mock data
+- settings responses remain limited to operational values and do not expose bootstrap secrets from `.env`
+- dashboard response baseline measured approximately `2087-2167 ms` across three authenticated runs in this workspace, which is close to but still above the PRD target of `< 2 seconds`
+- settings response baseline measured approximately `2094-2235 ms` across three authenticated runs in this workspace, which is acceptable for current MVP hardening evidence but indicates the runtime still needs optimization
+- deployment verify now returns a structured deployment result to the UI even when SMB validation fails, but the current environment still reports `the share is not valid`
+- final dev-host preview recheck after the authenticated thumbnail bridge change was noisy because `localhost:8080` intermittently refused connections, but the database-only storage cleanup itself was validated through DB finalization, API access, and successful builds
 - residual release blockers are documented in this roadmap and supporting docs
 - production deployment baseline now assumes the existing PostgreSQL instance defined in `.env`
 - OpenAPI contract was updated in the same work item as the backend route and auth changes
-- external PostgreSQL schema apply remains blocked by Prisma error `P1000` with the current credentials resolved from `.env`

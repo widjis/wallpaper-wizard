@@ -10,6 +10,8 @@ const configSchema = z
     APP_STORAGE_PATH: z.string().default("storage/wallpapers"),
     POSTGRES_URL: z.string().min(1),
     POSTGRES_APP_URL: z.string().optional(),
+    POSTGRES_USERNAME: z.string().optional(),
+    POSTGRES_PASSWORD: z.string().optional(),
     POSTGRES_DATABASE: z.string().min(1).default("wallpaperWizardDB"),
     DOMAIN_NAME: z.string().min(1),
     DOMAIN_USERNAME: z.string().min(1),
@@ -22,6 +24,10 @@ const configSchema = z
     LDAP_BIND_PASSWORD: z.string().optional(),
     LDAP_BASE_DN: z.string().optional(),
     REDIS_URL: z.string().default("redis://127.0.0.1:6379"),
+    LDAP_USER: z.string().optional(),
+    LDAP_PASS: z.string().optional(),
+    LOCAL_ADMIN: z.string().optional(),
+    LOCAL_PASS: z.string().optional(),
     AUTH_SEED_ADMIN_USERNAME: z.string().default("widji"),
     AUTH_SEED_ADMIN_PASSWORD: z.string().default("admin123"),
   })
@@ -30,6 +36,12 @@ const configSchema = z
       ? env.POSTGRES_APP_URL
       : (() => {
           const url = new URL(env.POSTGRES_URL);
+          if (env.POSTGRES_USERNAME) {
+            url.username = env.POSTGRES_USERNAME;
+          }
+          if (env.POSTGRES_PASSWORD) {
+            url.password = env.POSTGRES_PASSWORD;
+          }
           url.pathname = `/${env.POSTGRES_DATABASE}`;
           return url.toString();
         })();
@@ -37,6 +49,8 @@ const configSchema = z
     return {
       ...env,
       POSTGRES_APP_URL: appUrl,
+      AUTH_SEED_ADMIN_USERNAME: env.LOCAL_ADMIN?.trim() || env.AUTH_SEED_ADMIN_USERNAME,
+      AUTH_SEED_ADMIN_PASSWORD: env.LOCAL_PASS?.trim() || env.AUTH_SEED_ADMIN_PASSWORD,
     };
   });
 

@@ -11,6 +11,8 @@ const { Client } = pg;
 function buildDatabaseUrl() {
   const rawUrl = process.env.POSTGRES_URL;
   const databaseName = process.env.POSTGRES_DATABASE;
+  const username = process.env.POSTGRES_USERNAME;
+  const password = process.env.POSTGRES_PASSWORD;
 
   if (!rawUrl) {
     throw new Error("POSTGRES_URL is required");
@@ -21,6 +23,12 @@ function buildDatabaseUrl() {
   }
 
   const url = new URL(rawUrl);
+  if (username) {
+    url.username = username;
+  }
+  if (password) {
+    url.password = password;
+  }
   url.pathname = `/${databaseName}`;
   return url.toString();
 }
@@ -40,6 +48,12 @@ async function ensureDatabaseExists() {
   }
 
   const adminUrl = new URL(rawUrl);
+  if (process.env.POSTGRES_USERNAME) {
+    adminUrl.username = process.env.POSTGRES_USERNAME;
+  }
+  if (process.env.POSTGRES_PASSWORD) {
+    adminUrl.password = process.env.POSTGRES_PASSWORD;
+  }
   const targetDatabase = databaseName.replace(/"/g, "\"\"");
   const client = new Client({
     connectionString: adminUrl.toString(),

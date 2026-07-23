@@ -1,13 +1,38 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Upload, Search, MoreVertical, Download, Trash2, Eye } from "lucide-react";
+import { toast } from "sonner";
 import { AppLayout } from "@/components/app-layout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { apiGet, apiUpload, formatBytes } from "@/lib/api";
+import {
+  apiDelete,
+  apiGet,
+  apiImageUrl,
+  apiUpload,
+  formatBytes,
+  getStoredSession,
+} from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import type { WallpaperSummary } from "@cwcm/types";
 import safetyImg from "@/assets/wallpaper-safety.jpg";
 import independenceImg from "@/assets/wallpaper-independence.jpg";
@@ -90,6 +115,9 @@ function Page() {
   const { isAuthenticated } = useAuth();
   const queryClient = useQueryClient();
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const [previewUrls, setPreviewUrls] = useState<Record<string, string>>({});
+  const [previewItem, setPreviewItem] = useState<WallpaperSummary | null>(null);
+  const [deleteItem, setDeleteItem] = useState<WallpaperSummary | null>(null);
   const { data } = useQuery({
     queryKey: ["wallpapers"],
     queryFn: () => apiGet<{ items: WallpaperSummary[] }>("/wallpapers"),
@@ -102,9 +130,26 @@ function Page() {
       formData.append("file", file);
       return apiUpload<WallpaperSummary>("/wallpapers", formData);
     },
-    onSuccess: () => {
+    onSuccess: (wallpaper) => {
       queryClient.invalidateQueries({ queryKey: ["wallpapers"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard-summary"] });
+      toast.success(`Wallpaper "${wallpaper.title}" uploaded`);
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : "Upload failed");
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (wallpaperId: string) => apiDelete(`/wallpapers/${wallpaperId}`),
+    onSuccess: () => {
+      setDeleteItem(null);
+      queryClient.invalidateQueries({ queryKey: ["wallpapers"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard-summary"] });
+      toast.success("Wallpaper deleted");
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : "Delete failed");
     },
   });
 
@@ -116,6 +161,71 @@ function Page() {
       usageStatus:
         item.tag === "In use" ? "IN_USE" : item.tag === "Scheduled" ? "SCHEDULED" : "DRAFT",
     }));
+
+  useEffect(() => {
+    const liveWallpapers = data?.items;
+    if (!liveWallpapers?.length) {
+      return;
+    }
+
+    let revoked = false;
+    const allocatedUrls: string[] = [];
+
+    void Promise.all(
+      liveWallpapers.map(async (item) => {
+        const relativePath = item.imageUrl
+          .replace(/^https?:\/\/[^/]+\/api/, "")
+          .replace(/^\/api/, "");
+        const objectUrl = await apiImageUrl(relativePath);
+        allocatedUrls.push(objectUrl);
+        return [item.id, objectUrl] as const;
+      }),
+    )
+      .then((entries) => {
+        if (revoked) {
+          entries.forEach(([, url]) => URL.revokeObjectURL(url));
+          return;
+        }
+
+        setPreviewUrls(Object.fromEntries(entries));
+      })
+      .catch(() => {
+        if (!revoked) {
+          setPreviewUrls({});
+        }
+      });
+
+    return () => {
+      revoked = true;
+      allocatedUrls.forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, [data?.items]);
+
+  async function handleDownload(item: WallpaperSummary) {
+    try {
+      const session = getStoredSession();
+      const response = await fetch(`http://localhost:3000${item.imageUrl}`, {
+        headers: session?.token ? { Authorization: `Bearer ${session.token}` } : undefined,
+      });
+
+      if (!response.ok) {
+        throw new Error(`Download failed with status ${response.status}`);
+      }
+
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = objectUrl;
+      anchor.download = item.filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(objectUrl);
+      toast.success(`Downloading "${item.filename}"`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Download failed");
+    }
+  }
 
   return (
     <AppLayout
@@ -151,17 +261,7 @@ function Page() {
           <div key={i} className="rounded-xl border border-border bg-card overflow-hidden group">
             <div className="relative aspect-video overflow-hidden bg-muted">
               <img
-                src={
-                  "img" in it
-                    ? it.img
-                    : i % 4 === 0
-                      ? safetyImg
-                      : i % 4 === 1
-                        ? independenceImg
-                        : i % 4 === 2
-                          ? anniversaryImg
-                          : christmasImg
-                }
+                src={"img" in it ? it.img : (previewUrls[it.id] ?? it.imageUrl)}
                 alt={it.title}
                 loading="lazy"
                 className="w-full h-full object-cover group-hover:scale-105 transition-transform"
@@ -191,19 +291,50 @@ function Page() {
                 </button>
               </div>
               <div className="flex items-center gap-3 text-xs text-muted-foreground mt-3">
-                <span>{"resolution" in it ? it.resolution.replace("x", "×") : it.res}</span>
+                <span>{"resolution" in it ? `${it.width}×${it.height}` : it.res}</span>
                 <span>•</span>
                 <span>{"sizeBytes" in it ? formatBytes(it.sizeBytes) : it.size}</span>
               </div>
               <div className="flex items-center gap-2 mt-4">
-                <Button size="sm" variant="outline" className="flex-1">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => {
+                    if ("id" in it) {
+                      setPreviewItem(it);
+                      return;
+                    }
+                    toast.info("Preview is available for live wallpapers only");
+                  }}
+                >
                   <Eye className="h-3.5 w-3.5 mr-1.5" />
                   Preview
                 </Button>
-                <Button size="sm" variant="outline">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    if ("id" in it) {
+                      void handleDownload(it);
+                      return;
+                    }
+                    toast.info("Download is available for live wallpapers only");
+                  }}
+                >
                   <Download className="h-3.5 w-3.5" />
                 </Button>
-                <Button size="sm" variant="outline">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    if ("id" in it) {
+                      setDeleteItem(it);
+                      return;
+                    }
+                    toast.info("Delete is available for live wallpapers only");
+                  }}
+                >
                   <Trash2 className="h-3.5 w-3.5" />
                 </Button>
               </div>
@@ -211,6 +342,52 @@ function Page() {
           </div>
         ))}
       </div>
+
+      <Dialog open={Boolean(previewItem)} onOpenChange={(open) => !open && setPreviewItem(null)}>
+        <DialogContent className="max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>{previewItem?.title ?? "Wallpaper preview"}</DialogTitle>
+            <DialogDescription>
+              {previewItem
+                ? `${previewItem.width}×${previewItem.height} • ${formatBytes(previewItem.sizeBytes)}`
+                : "Preview wallpaper image"}
+            </DialogDescription>
+          </DialogHeader>
+          {previewItem ? (
+            <img
+              src={previewUrls[previewItem.id] ?? previewItem.imageUrl}
+              alt={previewItem.title}
+              className="w-full rounded-md border border-border bg-muted object-contain"
+            />
+          ) : null}
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={Boolean(deleteItem)} onOpenChange={(open) => !open && setDeleteItem(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete wallpaper?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteItem
+                ? `Delete "${deleteItem.title}" from the wallpaper library. This action cannot be undone.`
+                : "Delete selected wallpaper."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault();
+                if (deleteItem) {
+                  deleteMutation.mutate(deleteItem.id);
+                }
+              }}
+            >
+              {deleteMutation.isPending ? "Deleting..." : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </AppLayout>
   );
 }

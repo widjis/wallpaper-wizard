@@ -54,20 +54,22 @@ model User {
 }
 
 model Wallpaper {
-  id               String       @id @default(uuid())
+  id               String          @id @default(uuid())
   title            String
   filename         String
-  storagePath      String
   description      String?
   tags             String[]
   resolution       String
+  width            Int
+  height           Int
   sizeBytes        Int
   checksumSha256   String
   mimeType         String
+  imageData        Bytes
   uploadedById     String
-  uploadedAt       DateTime     @default(now())
+  uploadedAt       DateTime        @default(now())
   deletedAt        DateTime?
-  uploadedBy       User         @relation(fields: [uploadedById], references: [id])
+  uploadedBy       User            @relation(fields: [uploadedById], references: [id])
   campaigns        Campaign[]
   deploymentLogs   DeploymentLog[]
 }

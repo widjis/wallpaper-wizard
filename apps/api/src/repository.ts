@@ -37,6 +37,10 @@ function parseSetting<T>(valueJson: string): T {
   return JSON.parse(valueJson) as T;
 }
 
+function buildWallpaperImageUrl(wallpaperId: string): string {
+  return `/api/wallpapers/${wallpaperId}/image`;
+}
+
 function rangesOverlap(
   aStart: Date | null,
   aEnd: Date | null,
@@ -137,6 +141,113 @@ export async function listUsers(): Promise<UserSummary[]> {
   }));
 }
 
+export async function createUserRecord(payload: {
+  username: string;
+  password: string;
+  role: UserRole;
+  isActive: boolean;
+  createdById: string;
+}): Promise<UserSummary> {
+  const passwordHash = await bcrypt.hash(payload.password, 10);
+  const user = await prisma.user.create({
+    data: {
+      username: payload.username,
+      passwordHash,
+      role: payload.role,
+      isActive: payload.isActive,
+    },
+  });
+
+  await prisma.activityLog.create({
+    data: {
+      actor: payload.createdById,
+      action: "user.created",
+      detail: user.username,
+    },
+  });
+
+  return {
+    id: user.id,
+    username: user.username,
+    role: mapRole(user.role),
+    isActive: user.isActive,
+    lastLoginAt: user.lastLoginAt?.toISOString() ?? null,
+  };
+}
+
+export async function updateUserRecord(payload: {
+  userId: string;
+  username: string;
+  password?: string;
+  role: UserRole;
+  isActive: boolean;
+  updatedById: string;
+}): Promise<UserSummary> {
+  const existingUser = await prisma.user.findUnique({
+    where: { id: payload.userId },
+  });
+
+  if (!existingUser) {
+    throw new Error("User not found");
+  }
+
+  const user = await prisma.user.update({
+    where: { id: payload.userId },
+    data: {
+      username: payload.username,
+      role: payload.role,
+      isActive: payload.isActive,
+      ...(payload.password ? { passwordHash: await bcrypt.hash(payload.password, 10) } : {}),
+    },
+  });
+
+  await prisma.activityLog.create({
+    data: {
+      actor: payload.updatedById,
+      action: "user.updated",
+      detail: user.username,
+    },
+  });
+
+  return {
+    id: user.id,
+    username: user.username,
+    role: mapRole(user.role),
+    isActive: user.isActive,
+    lastLoginAt: user.lastLoginAt?.toISOString() ?? null,
+  };
+}
+
+export async function deleteUserRecord(payload: {
+  userId: string;
+  deletedById: string;
+}): Promise<void> {
+  const existingUser = await prisma.user.findUnique({
+    where: { id: payload.userId },
+  });
+
+  if (!existingUser) {
+    throw new Error("User not found");
+  }
+
+  await prisma.session.updateMany({
+    where: { userId: existingUser.id, revokedAt: null },
+    data: { revokedAt: new Date() },
+  });
+
+  await prisma.user.delete({
+    where: { id: existingUser.id },
+  });
+
+  await prisma.activityLog.create({
+    data: {
+      actor: payload.deletedById,
+      action: "user.deleted",
+      detail: existingUser.username,
+    },
+  });
+}
+
 export async function listWallpapers(): Promise<WallpaperSummary[]> {
   const wallpapers = await prisma.wallpaper.findMany({
     where: { deletedAt: null },
@@ -153,8 +264,12 @@ export async function listWallpapers(): Promise<WallpaperSummary[]> {
     description: wallpaper.description,
     tags: wallpaper.tags,
     resolution: wallpaper.resolution,
+    width: wallpaper.width,
+    height: wallpaper.height,
     sizeBytes: wallpaper.sizeBytes,
     checksumSha256: wallpaper.checksumSha256,
+    mimeType: wallpaper.mimeType,
+    imageUrl: buildWallpaperImageUrl(wallpaper.id),
     uploadedAt: wallpaper.uploadedAt.toISOString(),
     usageStatus: wallpaper.campaigns.some((campaign) => campaign.status === CampaignStatus.ACTIVE)
       ? "IN_USE"
@@ -167,8 +282,11 @@ export async function listWallpapers(): Promise<WallpaperSummary[]> {
 export async function createWallpaperRecord(payload: {
   title: string;
   filename: string;
-  storagePath: string;
   mimeType: string;
+  imageData: Buffer;
+  width: number;
+  height: number;
+  resolution: string;
   sizeBytes: number;
   checksumSha256: string;
   uploadedById: string;
@@ -177,13 +295,15 @@ export async function createWallpaperRecord(payload: {
     data: {
       title: payload.title,
       filename: payload.filename,
-      storagePath: payload.storagePath,
       description: null,
       tags: [],
-      resolution: "Unknown",
+      resolution: payload.resolution,
+      width: payload.width,
+      height: payload.height,
       sizeBytes: payload.sizeBytes,
       checksumSha256: payload.checksumSha256,
       mimeType: payload.mimeType,
+      imageData: new Uint8Array(payload.imageData),
       uploadedById: payload.uploadedById,
     },
   });
@@ -203,11 +323,59 @@ export async function createWallpaperRecord(payload: {
     description: wallpaper.description,
     tags: wallpaper.tags,
     resolution: wallpaper.resolution,
+    width: wallpaper.width,
+    height: wallpaper.height,
     sizeBytes: wallpaper.sizeBytes,
     checksumSha256: wallpaper.checksumSha256,
+    mimeType: wallpaper.mimeType,
+    imageUrl: buildWallpaperImageUrl(wallpaper.id),
     uploadedAt: wallpaper.uploadedAt.toISOString(),
     usageStatus: "DRAFT",
   };
+}
+
+export async function deleteWallpaperRecord(payload: {
+  wallpaperId: string;
+  deletedById: string;
+}): Promise<void> {
+  const wallpaper = await prisma.wallpaper.findFirst({
+    where: {
+      id: payload.wallpaperId,
+      deletedAt: null,
+    },
+    include: {
+      campaigns: {
+        where: {
+          status: {
+            in: [CampaignStatus.DRAFT, CampaignStatus.SCHEDULED, CampaignStatus.ACTIVE],
+          },
+        },
+      },
+    },
+  });
+
+  if (!wallpaper) {
+    throw new Error("Wallpaper not found");
+  }
+
+  if (wallpaper.campaigns.length > 0) {
+    throw new Error("Wallpaper is still used by active or scheduled campaigns");
+  }
+
+  await prisma.wallpaper.update({
+    where: { id: wallpaper.id },
+    data: {
+      deletedAt: new Date(),
+    },
+  });
+
+  await prisma.activityLog.create({
+    data: {
+      actor: payload.deletedById,
+      action: "wallpaper.deleted",
+      detail: wallpaper.filename,
+    },
+  });
 }
 
 export async function listCampaigns(): Promise<CampaignSummary[]> {
@@ -309,6 +477,285 @@ export async function createCampaignRecord(payload: {
   };
 }
 
+export async function updateCampaignRecord(payload: {
+  campaignId: string;
+  name: string;
+  wallpaperId: string;
+  description?: string | null;
+  startDate?: string | null;
+  endDate?: string | null;
+  priority: number;
+  updatedById: string;
+}): Promise<CampaignSummary> {
+  const existingCampaign = await prisma.campaign.findUnique({
+    where: { id: payload.campaignId },
+  });
+
+  if (!existingCampaign) {
+    throw new Error("Campaign not found");
+  }
+
+  const wallpaper = await prisma.wallpaper.findUnique({
+    where: { id: payload.wallpaperId },
+  });
+
+  if (!wallpaper) {
+    throw new Error("Wallpaper not found");
+  }
+
+  const startDate = payload.startDate ? new Date(payload.startDate) : null;
+  const endDate = payload.endDate ? new Date(payload.endDate) : null;
+
+  const existingCampaigns = await prisma.campaign.findMany({
+    where: {
+      id: { not: payload.campaignId },
+      status: {
+        in: [CampaignStatus.DRAFT, CampaignStatus.SCHEDULED, CampaignStatus.ACTIVE],
+      },
+    },
+  });
+
+  const overlap = existingCampaigns.find((campaign) =>
+    rangesOverlap(startDate, endDate, campaign.startDate, campaign.endDate),
+  );
+
+  if (overlap) {
+    throw new Error(`Campaign schedule overlaps with "${overlap.name}"`);
+  }
+
+  const campaign = await prisma.campaign.update({
+    where: { id: payload.campaignId },
+    data: {
+      name: payload.name,
+      wallpaperId: payload.wallpaperId,
+      description: payload.description ?? null,
+      startDate,
+      endDate,
+      priority: payload.priority,
+    },
+    include: {
+      wallpaper: true,
+    },
+  });
+
+  await prisma.activityLog.create({
+    data: {
+      actor: payload.updatedById,
+      action: "campaign.updated",
+      detail: campaign.name,
+    },
+  });
+
+  return {
+    id: campaign.id,
+    name: campaign.name,
+    wallpaperId: campaign.wallpaperId,
+    wallpaperTitle: campaign.wallpaper.title,
+    description: campaign.description,
+    startDate: campaign.startDate?.toISOString() ?? null,
+    endDate: campaign.endDate?.toISOString() ?? null,
+    priority: campaign.priority,
+    status: mapCampaignStatus(campaign.status),
+  };
+}
+
+export async function deleteCampaignRecord(payload: {
+  campaignId: string;
+  deletedById: string;
+}): Promise<void> {
+  const campaign = await prisma.campaign.findUnique({
+    where: { id: payload.campaignId },
+  });
+
+  if (!campaign) {
+    throw new Error("Campaign not found");
+  }
+
+  if (campaign.status === CampaignStatus.ACTIVE) {
+    throw new Error("Active campaign cannot be deleted");
+  }
+
+  await prisma.$transaction([
+    prisma.campaignQueueEntry.deleteMany({
+      where: { campaignId: campaign.id },
+    }),
+    prisma.deploymentLog.deleteMany({
+      where: { campaignId: campaign.id },
+    }),
+    prisma.campaign.delete({
+      where: { id: campaign.id },
+    }),
+  ]);
+
+  await prisma.activityLog.create({
+    data: {
+      actor: payload.deletedById,
+      action: "campaign.deleted",
+      detail: campaign.name,
+    },
+  });
+}
+
+export async function duplicateCampaignRecord(payload: {
+  campaignId: string;
+  createdById: string;
+}): Promise<CampaignSummary> {
+  const existingCampaign = await prisma.campaign.findUnique({
+    where: { id: payload.campaignId },
+    include: { wallpaper: true },
+  });
+
+  if (!existingCampaign) {
+    throw new Error("Campaign not found");
+  }
+
+  const duplicated = await prisma.campaign.create({
+    data: {
+      name: `${existingCampaign.name} Copy`,
+      wallpaperId: existingCampaign.wallpaperId,
+      description: existingCampaign.description,
+      startDate: null,
+      endDate: null,
+      priority: existingCampaign.priority,
+      status: CampaignStatus.DRAFT,
+      createdById: payload.createdById,
+    },
+    include: { wallpaper: true },
+  });
+
+  const lastQueue = await prisma.campaignQueueEntry.findFirst({
+    orderBy: { orderIndex: "desc" },
+  });
+
+  await prisma.campaignQueueEntry.create({
+    data: {
+      campaignId: duplicated.id,
+      orderIndex: lastQueue ? lastQueue.orderIndex + 1 : 0,
+    },
+  });
+
+  await prisma.activityLog.create({
+    data: {
+      actor: payload.createdById,
+      action: "campaign.duplicated",
+      detail: duplicated.name,
+    },
+  });
+
+  return {
+    id: duplicated.id,
+    name: duplicated.name,
+    wallpaperId: duplicated.wallpaperId,
+    wallpaperTitle: duplicated.wallpaper.title,
+    description: duplicated.description,
+    startDate: duplicated.startDate?.toISOString() ?? null,
+    endDate: duplicated.endDate?.toISOString() ?? null,
+    priority: duplicated.priority,
+    status: mapCampaignStatus(duplicated.status),
+  };
+}
+
+export async function activateCampaignRecord(payload: {
+  campaignId: string;
+  updatedById: string;
+}): Promise<CampaignSummary> {
+  const existingCampaign = await prisma.campaign.findUnique({
+    where: { id: payload.campaignId },
+    include: { wallpaper: true },
+  });
+
+  if (!existingCampaign) {
+    throw new Error("Campaign not found");
+  }
+
+  await prisma.campaign.updateMany({
+    where: {
+      status: CampaignStatus.ACTIVE,
+      id: { not: existingCampaign.id },
+    },
+    data: {
+      status: CampaignStatus.COMPLETED,
+      completedAt: new Date(),
+    },
+  });
+
+  const activated = await prisma.campaign.update({
+    where: { id: payload.campaignId },
+    data: {
+      status: CampaignStatus.ACTIVE,
+      activatedAt: new Date(),
+    },
+    include: { wallpaper: true },
+  });
+
+  await prisma.activityLog.create({
+    data: {
+      actor: payload.updatedById,
+      action: "campaign.activated",
+      detail: activated.name,
+    },
+  });
+
+  return {
+    id: activated.id,
+    name: activated.name,
+    wallpaperId: activated.wallpaperId,
+    wallpaperTitle: activated.wallpaper.title,
+    description: activated.description,
+    startDate: activated.startDate?.toISOString() ?? null,
+    endDate: activated.endDate?.toISOString() ?? null,
+    priority: activated.priority,
+    status: mapCampaignStatus(activated.status),
+  };
+}
+
+export async function cancelCampaignRecord(payload: {
+  campaignId: string;
+  updatedById: string;
+}): Promise<CampaignSummary> {
+  const existingCampaign = await prisma.campaign.findUnique({
+    where: { id: payload.campaignId },
+    include: { wallpaper: true },
+  });
+
+  if (!existingCampaign) {
+    throw new Error("Campaign not found");
+  }
+
+  const cancelled = await prisma.campaign.update({
+    where: { id: payload.campaignId },
+    data: {
+      status: CampaignStatus.CANCELLED,
+      completedAt: new Date(),
+    },
+    include: { wallpaper: true },
+  });
+
+  await prisma.campaignQueueEntry.deleteMany({
+    where: { campaignId: payload.campaignId },
+  });
+
+  await prisma.activityLog.create({
+    data: {
+      actor: payload.updatedById,
+      action: "campaign.cancelled",
+      detail: cancelled.name,
+    },
+  });
+
+  return {
+    id: cancelled.id,
+    name: cancelled.name,
+    wallpaperId: cancelled.wallpaperId,
+    wallpaperTitle: cancelled.wallpaper.title,
+    description: cancelled.description,
+    startDate: cancelled.startDate?.toISOString() ?? null,
+    endDate: cancelled.endDate?.toISOString() ?? null,
+    priority: cancelled.priority,
+    status: mapCampaignStatus(cancelled.status),
+  };
+}
+
 export async function getQueueState(): Promise<QueueState> {
   const setting = await prisma.systemSetting.findUnique({
     where: { key: "queueState" },
@@ -334,7 +781,11 @@ export async function setQueueState(nextState: QueueState, updatedById?: string)
 export async function listQueue(): Promise<QueueItem[]> {
   const entries = await prisma.campaignQueueEntry.findMany({
     include: {
-      campaign: true,
+      campaign: {
+        include: {
+          wallpaper: true,
+        },
+      },
     },
     orderBy: { orderIndex: "asc" },
   });
@@ -345,7 +796,7 @@ export async function listQueue(): Promise<QueueItem[]> {
     positionLabel: index === 0 ? "NOW" : "NEXT",
     name: entry.campaign.name,
     scheduleLabel: `${entry.campaign.startDate?.toISOString() ?? "TBD"} - ${entry.campaign.endDate?.toISOString() ?? "TBD"}`,
-    wallpaperUrl: null,
+    wallpaperUrl: buildWallpaperImageUrl(entry.campaign.wallpaperId),
     status: mapCampaignStatus(entry.campaign.status),
   }));
 }
@@ -359,6 +810,47 @@ export async function reorderQueueItems(campaignIds: string[]): Promise<QueueIte
       }),
     ),
   );
+
+  return listQueue();
+}
+
+export async function removeQueueItemRecord(payload: {
+  campaignId: string;
+  updatedById: string;
+}): Promise<QueueItem[]> {
+  const entry = await prisma.campaignQueueEntry.findUnique({
+    where: { campaignId: payload.campaignId },
+    include: { campaign: true },
+  });
+
+  if (!entry) {
+    throw new Error("Queue item not found");
+  }
+
+  await prisma.campaignQueueEntry.delete({
+    where: { campaignId: payload.campaignId },
+  });
+
+  const remaining = await prisma.campaignQueueEntry.findMany({
+    orderBy: { orderIndex: "asc" },
+  });
+
+  await prisma.$transaction(
+    remaining.map((item, index) =>
+      prisma.campaignQueueEntry.update({
+        where: { id: item.id },
+        data: { orderIndex: index },
+      }),
+    ),
+  );
+
+  await prisma.activityLog.create({
+    data: {
+      actor: payload.updatedById,
+      action: "queue.removed",
+      detail: entry.campaign.name,
+    },
+  });
 
   return listQueue();
 }
@@ -478,6 +970,23 @@ export async function getDeploymentDetail(deploymentId: string) {
     include: {
       campaign: true,
       wallpaper: true,
+    },
+  });
+}
+
+export async function getWallpaperBinary(wallpaperId: string) {
+  return prisma.wallpaper.findFirst({
+    where: {
+      id: wallpaperId,
+      deletedAt: null,
+    },
+    select: {
+      id: true,
+      filename: true,
+      mimeType: true,
+      imageData: true,
+      checksumSha256: true,
+      sizeBytes: true,
     },
   });
 }

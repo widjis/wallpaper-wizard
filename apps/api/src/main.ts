@@ -3,21 +3,29 @@ import cors from "@fastify/cors";
 import multipart from "@fastify/multipart";
 import swagger from "@fastify/swagger";
 import swaggerUi from "@fastify/swagger-ui";
-import fs from "node:fs/promises";
-import path from "node:path";
-import { QueueState, TriggerSource } from "@prisma/client";
+import { QueueState, TriggerSource, type UserRole } from "@prisma/client";
 import { appConfig } from "./config.js";
 import { ensureSeedData } from "./prisma.js";
 import { getUserByToken } from "./repository.js";
 import {
+  userCreateSchema,
+  userUpdateSchema,
   campaignCreateSchema,
+  campaignUpdateSchema,
   loginSchema,
   queueReorderSchema,
   settingsUpdateSchema,
 } from "./schemas.js";
 import {
+  activateCampaignRecord,
   buildDashboardSummary,
+  cancelCampaignRecord,
   createCampaignRecord,
+  createUserRecord,
+  deleteWallpaperRecord,
+  deleteCampaignRecord,
+  deleteUserRecord,
+  duplicateCampaignRecord,
   createDeploymentRecord,
   createWallpaperRecord,
   finalizeDeploymentRecord,
@@ -25,6 +33,7 @@ import {
   getHealthStatus,
   getQueueState,
   getSettings,
+  getWallpaperBinary,
   listActivityLogs,
   listCampaigns,
   listDeployments,
@@ -33,12 +42,15 @@ import {
   listWallpapers,
   loginWithLocalAuth,
   logoutByToken,
+  removeQueueItemRecord,
   reorderQueueItems,
   setQueueState,
+  updateCampaignRecord,
   updateSettingsRecord,
+  updateUserRecord,
 } from "./repository.js";
 import { publishWallpaperToSysvol } from "./smb.js";
-import { buildChecksum } from "./services.js";
+import { normalizeWallpaperImage } from "./services.js";
 
 const server = Fastify({
   logger: {
@@ -48,8 +60,17 @@ const server = Fastify({
   },
 });
 
-await server.register(cors, { origin: true, credentials: true });
-await server.register(multipart);
+await server.register(cors, {
+  origin: true,
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+});
+await server.register(multipart, {
+  limits: {
+    fileSize: 64 * 1024 * 1024,
+  },
+});
 await server.register(swagger, {
   openapi: {
     info: {
@@ -64,6 +85,14 @@ await server.register(swaggerUi, {
 
 await ensureSeedData();
 
+interface AuthenticatedRequestUser {
+  id: string;
+  username: string;
+  role: UserRole;
+  isActive: boolean;
+  lastLoginAt: string | null;
+}
+
 server.addHook("preHandler", async (request, reply) => {
   if (!request.url.startsWith("/api") || request.url.startsWith("/api/auth/login")) {
     return;
@@ -76,13 +105,13 @@ server.addHook("preHandler", async (request, reply) => {
   }
 
   const token = authorization.replace("Bearer ", "");
-  const user = getUserByToken(token);
+  const user = await getUserByToken(token);
   if (!user) {
     reply.status(401);
     throw new Error("Invalid bearer token");
   }
 
-  (request as typeof request & { currentUser: typeof user }).currentUser = user;
+  (request as typeof request & { currentUser: AuthenticatedRequestUser }).currentUser = user;
 });
 
 server.get("/health", async () => {
@@ -131,27 +160,65 @@ server.post("/api/wallpapers", async (request, reply) => {
   for await (const chunk of uploaded.file) {
     chunks.push(chunk);
   }
+  if ((uploaded.file as unknown as { truncated?: boolean }).truncated) {
+    reply.status(413);
+    return { message: "Upload exceeded server file size limit" };
+  }
 
-  const buffer = Buffer.concat(chunks);
-  const storageDir = path.resolve(process.cwd(), appConfig.APP_STORAGE_PATH);
-  await fs.mkdir(storageDir, { recursive: true });
-  const filePath = path.join(storageDir, uploaded.filename);
-  await fs.writeFile(filePath, buffer);
+  const normalized = await normalizeWallpaperImage(Buffer.concat(chunks), uploaded.filename);
 
-  const currentUser = (request as typeof request & { currentUser: { id: string } }).currentUser;
+  const currentUser = (request as typeof request & { currentUser: AuthenticatedRequestUser })
+    .currentUser;
 
   const wallpaper = await createWallpaperRecord({
-    title: uploaded.filename.replace(/\.[^.]+$/, ""),
-    filename: uploaded.filename,
-    storagePath: filePath,
-    mimeType: uploaded.mimetype,
-    sizeBytes: buffer.byteLength,
-    checksumSha256: buildChecksum(buffer),
+    title: normalized.filename.replace(/\.[^.]+$/, ""),
+    filename: normalized.filename,
+    mimeType: normalized.mimeType,
+    imageData: normalized.buffer,
+    width: normalized.width,
+    height: normalized.height,
+    resolution: normalized.resolution,
+    sizeBytes: normalized.sizeBytes,
+    checksumSha256: normalized.checksumSha256,
     uploadedById: currentUser.id,
   });
 
   reply.status(201);
   return wallpaper;
+});
+
+server.get("/api/wallpapers/:wallpaperId/image", async (request, reply) => {
+  const wallpaper = await getWallpaperBinary(
+    (request.params as { wallpaperId: string }).wallpaperId,
+  );
+  if (!wallpaper) {
+    reply.status(404);
+    return { message: "Wallpaper not found" };
+  }
+
+  reply.header("Content-Type", wallpaper.mimeType);
+  reply.header("Content-Length", String(wallpaper.sizeBytes));
+  reply.header("ETag", wallpaper.checksumSha256);
+  reply.header("Cache-Control", "public, max-age=300");
+  return reply.send(Buffer.from(wallpaper.imageData));
+});
+
+server.delete("/api/wallpapers/:wallpaperId", async (request, reply) => {
+  try {
+    const currentUser = (request as typeof request & { currentUser: AuthenticatedRequestUser })
+      .currentUser;
+    await deleteWallpaperRecord({
+      wallpaperId: (request.params as { wallpaperId: string }).wallpaperId,
+      deletedById: currentUser.id,
+    });
+    reply.status(204);
+    return;
+  } catch (error) {
+    reply.status(400);
+    return {
+      message: error instanceof Error ? error.message : "Wallpaper delete failed",
+    };
+  }
 });
 
 server.get("/api/campaigns", async () => {
@@ -163,7 +230,8 @@ server.get("/api/campaigns", async () => {
 server.post("/api/campaigns", async (request, reply) => {
   const payload = campaignCreateSchema.parse(request.body);
   try {
-    const currentUser = (request as typeof request & { currentUser: { id: string } }).currentUser;
+    const currentUser = (request as typeof request & { currentUser: AuthenticatedRequestUser })
+      .currentUser;
     const campaign = await createCampaignRecord({
       ...payload,
       createdById: currentUser.id,
@@ -174,6 +242,93 @@ server.post("/api/campaigns", async (request, reply) => {
     reply.status(400);
     return {
       message: error instanceof Error ? error.message : "Campaign creation failed",
+    };
+  }
+});
+
+server.patch("/api/campaigns/:campaignId", async (request, reply) => {
+  const payload = campaignUpdateSchema.parse(request.body);
+  try {
+    const currentUser = (request as typeof request & { currentUser: AuthenticatedRequestUser })
+      .currentUser;
+    const campaign = await updateCampaignRecord({
+      campaignId: (request.params as { campaignId: string }).campaignId,
+      ...payload,
+      updatedById: currentUser.id,
+    });
+    return campaign;
+  } catch (error) {
+    reply.status(400);
+    return {
+      message: error instanceof Error ? error.message : "Campaign update failed",
+    };
+  }
+});
+
+server.delete("/api/campaigns/:campaignId", async (request, reply) => {
+  try {
+    const currentUser = (request as typeof request & { currentUser: AuthenticatedRequestUser })
+      .currentUser;
+    await deleteCampaignRecord({
+      campaignId: (request.params as { campaignId: string }).campaignId,
+      deletedById: currentUser.id,
+    });
+    reply.status(204);
+    return;
+  } catch (error) {
+    reply.status(400);
+    return {
+      message: error instanceof Error ? error.message : "Campaign delete failed",
+    };
+  }
+});
+
+server.post("/api/campaigns/:campaignId/duplicate", async (request, reply) => {
+  try {
+    const currentUser = (request as typeof request & { currentUser: AuthenticatedRequestUser })
+      .currentUser;
+    const campaign = await duplicateCampaignRecord({
+      campaignId: (request.params as { campaignId: string }).campaignId,
+      createdById: currentUser.id,
+    });
+    reply.status(201);
+    return campaign;
+  } catch (error) {
+    reply.status(400);
+    return {
+      message: error instanceof Error ? error.message : "Campaign duplicate failed",
+    };
+  }
+});
+
+server.post("/api/campaigns/:campaignId/activate", async (request, reply) => {
+  try {
+    const currentUser = (request as typeof request & { currentUser: AuthenticatedRequestUser })
+      .currentUser;
+    return await activateCampaignRecord({
+      campaignId: (request.params as { campaignId: string }).campaignId,
+      updatedById: currentUser.id,
+    });
+  } catch (error) {
+    reply.status(400);
+    return {
+      message: error instanceof Error ? error.message : "Campaign activation failed",
+    };
+  }
+});
+
+server.post("/api/campaigns/:campaignId/cancel", async (request, reply) => {
+  try {
+    const currentUser = (request as typeof request & { currentUser: AuthenticatedRequestUser })
+      .currentUser;
+    return await cancelCampaignRecord({
+      campaignId: (request.params as { campaignId: string }).campaignId,
+      updatedById: currentUser.id,
+    });
+  } catch (error) {
+    reply.status(400);
+    return {
+      message: error instanceof Error ? error.message : "Campaign cancellation failed",
     };
   }
 });
@@ -193,14 +348,34 @@ server.post("/api/queue/reorder", async (request) => {
   };
 });
 
+server.delete("/api/queue/:campaignId", async (request, reply) => {
+  try {
+    const currentUser = (request as typeof request & { currentUser: AuthenticatedRequestUser })
+      .currentUser;
+    return {
+      items: await removeQueueItemRecord({
+        campaignId: (request.params as { campaignId: string }).campaignId,
+        updatedById: currentUser.id,
+      }),
+    };
+  } catch (error) {
+    reply.status(400);
+    return {
+      message: error instanceof Error ? error.message : "Queue removal failed",
+    };
+  }
+});
+
 server.post("/api/queue/pause", async (request) => {
-  const currentUser = (request as typeof request & { currentUser: { id: string } }).currentUser;
+  const currentUser = (request as typeof request & { currentUser: AuthenticatedRequestUser })
+    .currentUser;
   await setQueueState(QueueState.PAUSED, currentUser.id);
   return { state: "PAUSED" };
 });
 
 server.post("/api/queue/resume", async (request) => {
-  const currentUser = (request as typeof request & { currentUser: { id: string } }).currentUser;
+  const currentUser = (request as typeof request & { currentUser: AuthenticatedRequestUser })
+    .currentUser;
   await setQueueState(QueueState.RUNNING, currentUser.id);
   return { state: "RUNNING" };
 });
@@ -212,15 +387,16 @@ server.get("/api/deployments", async () => {
 });
 
 server.post("/api/deployments/:deploymentId/verify", async (request, reply) => {
+  const deploymentId = (request.params as { deploymentId: string }).deploymentId;
+
   try {
-    const deploymentId = (request.params as { deploymentId: string }).deploymentId;
     const deployment = await getDeploymentDetail(deploymentId);
     if (!deployment) {
       throw new Error("Deployment not found");
     }
 
     const published = await publishWallpaperToSysvol({
-      storagePath: deployment.wallpaper.storagePath,
+      imageData: Buffer.from(deployment.wallpaper.imageData),
       targetFilename: deployment.targetFilename,
     });
 
@@ -237,10 +413,21 @@ server.post("/api/deployments/:deploymentId/verify", async (request, reply) => {
       verifiedChecksumSha256: published.checksumSha256,
     });
   } catch (error) {
-    reply.status(404);
-    return {
-      message: error instanceof Error ? error.message : "Deployment not found",
-    };
+    const message = error instanceof Error ? error.message : "Deployment verification failed";
+
+    if (message === "Deployment not found") {
+      reply.status(404);
+      return { message };
+    }
+
+    return finalizeDeploymentRecord({
+      deploymentId,
+      result: "FAILED",
+      message: `SYSVOL verification failed: ${message}`,
+      verifiedExists: false,
+      verifiedSizeBytes: 0,
+      verifiedChecksumSha256: "",
+    });
   }
 });
 
@@ -256,11 +443,69 @@ server.get("/api/users", async () => {
   };
 });
 
+server.post("/api/users", async (request, reply) => {
+  const payload = userCreateSchema.parse(request.body);
+  try {
+    const currentUser = (request as typeof request & { currentUser: AuthenticatedRequestUser })
+      .currentUser;
+    const user = await createUserRecord({
+      ...payload,
+      role: payload.role as UserRole,
+      createdById: currentUser.id,
+    });
+    reply.status(201);
+    return user;
+  } catch (error) {
+    reply.status(400);
+    return {
+      message: error instanceof Error ? error.message : "User creation failed",
+    };
+  }
+});
+
+server.patch("/api/users/:userId", async (request, reply) => {
+  const payload = userUpdateSchema.parse(request.body);
+  try {
+    const currentUser = (request as typeof request & { currentUser: AuthenticatedRequestUser })
+      .currentUser;
+    return await updateUserRecord({
+      userId: (request.params as { userId: string }).userId,
+      ...payload,
+      role: payload.role as UserRole,
+      updatedById: currentUser.id,
+    });
+  } catch (error) {
+    reply.status(400);
+    return {
+      message: error instanceof Error ? error.message : "User update failed",
+    };
+  }
+});
+
+server.delete("/api/users/:userId", async (request, reply) => {
+  try {
+    const currentUser = (request as typeof request & { currentUser: AuthenticatedRequestUser })
+      .currentUser;
+    await deleteUserRecord({
+      userId: (request.params as { userId: string }).userId,
+      deletedById: currentUser.id,
+    });
+    reply.status(204);
+    return;
+  } catch (error) {
+    reply.status(400);
+    return {
+      message: error instanceof Error ? error.message : "User delete failed",
+    };
+  }
+});
+
 server.get("/api/settings", async () => getSettings());
 
 server.put("/api/settings", async (request) => {
   const payload = settingsUpdateSchema.parse(request.body);
-  const currentUser = (request as typeof request & { currentUser: { id: string } }).currentUser;
+  const currentUser = (request as typeof request & { currentUser: AuthenticatedRequestUser })
+    .currentUser;
   return updateSettingsRecord(payload, currentUser.id);
 });
 

@@ -1,10 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMemo, useState } from "react";
 import { UserPlus, Search } from "lucide-react";
+import { toast } from "sonner";
 import { AppLayout } from "@/components/app-layout";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Label } from "@/components/ui/label";
 import {
   Table,
   TableBody,
@@ -13,8 +16,18 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { apiGet, formatDateTime } from "@/lib/api";
-import type { UserSummary } from "@cwcm/types";
+import { apiDelete, apiGet, apiPatch, apiPost, formatDateTime } from "@/lib/api";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import type { UserMutationPayload, UserSummary } from "@cwcm/types";
 
 export const Route = createFileRoute("/users")({
   head: () => ({
@@ -79,33 +92,206 @@ function roleColor(r: string) {
 }
 
 function Page() {
+  const queryClient = useQueryClient();
+  const [search, setSearch] = useState("");
+  const [showForm, setShowForm] = useState(false);
+  const [editingUserId, setEditingUserId] = useState<string | null>(null);
+  const [deleteUserId, setDeleteUserId] = useState<string | null>(null);
+  const [form, setForm] = useState<UserMutationPayload>({
+    username: "",
+    password: "",
+    role: "OPERATOR",
+    isActive: true,
+  });
   const { data } = useQuery({
     queryKey: ["users"],
     queryFn: () => apiGet<{ items: UserSummary[] }>("/users"),
   });
 
-  const rows =
-    data?.items.map((user) => ({
-      name: user.username,
-      email: `${user.username.toLowerCase().replace(/\s+/g, ".")}@corp.intra.local`,
-      role: user.role.charAt(0) + user.role.slice(1).toLowerCase(),
-      last: formatDateTime(user.lastLoginAt),
-      status: user.isActive ? "Active" : "Disabled",
-    })) ?? users;
+  const createMutation = useMutation({
+    mutationFn: (payload: UserMutationPayload) =>
+      apiPost<UserSummary>("/users", {
+        ...payload,
+        password: payload.password ?? "",
+      }),
+    onSuccess: () => {
+      resetForm();
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+      toast.success("User created");
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : "Failed to create user");
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: (payload: UserMutationPayload) => {
+      if (!editingUserId) {
+        throw new Error("User ID is required");
+      }
+      return apiPatch<UserSummary>(`/users/${editingUserId}`, payload);
+    },
+    onSuccess: () => {
+      resetForm();
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+      toast.success("User updated");
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : "Failed to update user");
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (userId: string) => apiDelete(`/users/${userId}`),
+    onSuccess: () => {
+      setDeleteUserId(null);
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+      toast.success("User deleted");
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : "Failed to delete user");
+    },
+  });
+
+  const rows = useMemo(
+    () =>
+      data?.items.map((user) => ({
+        id: user.id,
+        name: user.username,
+        email: `${user.username.toLowerCase().replace(/\s+/g, ".")}@corp.intra.local`,
+        role: user.role.charAt(0) + user.role.slice(1).toLowerCase(),
+        roleValue: user.role,
+        last: formatDateTime(user.lastLoginAt),
+        status: user.isActive ? "Active" : "Disabled",
+      })) ??
+      users.map((user, index) => ({
+        ...user,
+        id: `sample-${index}`,
+        roleValue: "VIEWER" as const,
+      })),
+    [data?.items],
+  );
+
+  const filteredRows = useMemo(
+    () =>
+      rows.filter((user) => {
+        if (!search) return true;
+        const keyword = search.toLowerCase();
+        return (
+          user.name.toLowerCase().includes(keyword) ||
+          user.email.toLowerCase().includes(keyword) ||
+          user.role.toLowerCase().includes(keyword)
+        );
+      }),
+    [rows, search],
+  );
+
+  function resetForm() {
+    setShowForm(false);
+    setEditingUserId(null);
+    setForm({
+      username: "",
+      password: "",
+      role: "OPERATOR",
+      isActive: true,
+    });
+  }
 
   return (
     <AppLayout title="Users" subtitle="Manage portal access and roles">
       <div className="flex items-center gap-3 mb-6">
         <div className="relative flex-1 max-w-md">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input placeholder="Search users..." className="pl-9 bg-card" />
+          <Input
+            placeholder="Search users..."
+            className="pl-9 bg-card"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+          />
         </div>
         <div className="flex-1" />
-        <Button>
+        <Button
+          onClick={() => {
+            if (showForm && !editingUserId) {
+              resetForm();
+              return;
+            }
+            setShowForm(true);
+            setEditingUserId(null);
+          }}
+        >
           <UserPlus className="h-4 w-4 mr-2" />
           Add user
         </Button>
       </div>
+
+      {showForm ? (
+        <div className="rounded-xl border border-border bg-card p-5 mb-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Field
+            label="Username"
+            value={form.username}
+            onChange={(value) => setForm({ ...form, username: value })}
+          />
+          <Field
+            label={editingUserId ? "New password (optional)" : "Password"}
+            type="password"
+            value={form.password ?? ""}
+            onChange={(value) => setForm({ ...form, password: value })}
+          />
+          <div className="space-y-1.5">
+            <Label>Role</Label>
+            <select
+              className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+              value={form.role}
+              onChange={(event) =>
+                setForm({
+                  ...form,
+                  role: event.target.value as UserMutationPayload["role"],
+                })
+              }
+            >
+              <option value="ADMINISTRATOR">Administrator</option>
+              <option value="OPERATOR">Operator</option>
+              <option value="VIEWER">Viewer</option>
+            </select>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Status</Label>
+            <select
+              className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+              value={form.isActive ? "ACTIVE" : "DISABLED"}
+              onChange={(event) =>
+                setForm({
+                  ...form,
+                  isActive: event.target.value === "ACTIVE",
+                })
+              }
+            >
+              <option value="ACTIVE">Active</option>
+              <option value="DISABLED">Disabled</option>
+            </select>
+          </div>
+          <div className="md:col-span-2 flex gap-3">
+            <Button
+              onClick={() =>
+                editingUserId ? updateMutation.mutate(form) : createMutation.mutate(form)
+              }
+              disabled={createMutation.isPending || updateMutation.isPending}
+            >
+              {editingUserId
+                ? updateMutation.isPending
+                  ? "Updating..."
+                  : "Update user"
+                : createMutation.isPending
+                  ? "Creating..."
+                  : "Create user"}
+            </Button>
+            <Button variant="outline" onClick={resetForm}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      ) : null}
 
       <div className="rounded-xl border border-border bg-card overflow-hidden">
         <Table>
@@ -120,7 +306,7 @@ function Page() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {rows.map((u) => (
+            {filteredRows.map((u) => (
               <TableRow key={u.email}>
                 <TableCell>
                   <div className="flex items-center gap-3">
@@ -151,15 +337,90 @@ function Page() {
                   )}
                 </TableCell>
                 <TableCell className="text-right">
-                  <Button size="sm" variant="ghost">
-                    Edit
-                  </Button>
+                  <div className="flex items-center justify-end gap-1">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => {
+                        if (!data?.items) {
+                          toast.info("Edit is available for live users only");
+                          return;
+                        }
+                        const live = data.items.find((item) => item.id === u.id);
+                        if (!live) return;
+                        setEditingUserId(live.id);
+                        setShowForm(true);
+                        setForm({
+                          username: live.username,
+                          password: "",
+                          role: live.role,
+                          isActive: live.isActive,
+                        });
+                      }}
+                    >
+                      Edit
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setDeleteUserId(u.id)}
+                      disabled={!data?.items}
+                    >
+                      Delete
+                    </Button>
+                  </div>
                 </TableCell>
               </TableRow>
             ))}
           </TableBody>
         </Table>
       </div>
+
+      <AlertDialog
+        open={Boolean(deleteUserId)}
+        onOpenChange={(open) => !open && setDeleteUserId(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete user?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Delete the selected portal user and revoke active sessions.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault();
+                if (deleteUserId) {
+                  deleteMutation.mutate(deleteUserId);
+                }
+              }}
+            >
+              {deleteMutation.isPending ? "Deleting..." : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </AppLayout>
+  );
+}
+
+function Field({
+  label,
+  value,
+  onChange,
+  type = "text",
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  type?: string;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <Label>{label}</Label>
+      <Input type={type} value={value} onChange={(event) => onChange(event.target.value)} />
+    </div>
   );
 }
