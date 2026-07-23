@@ -698,6 +698,10 @@ components:
           type: string
           format: date-time
           nullable: true
+        timeZone:
+          type: string
+          nullable: true
+          description: IANA timezone identifier used to interpret the scheduled local start and end time
         priority:
           type: integer
         status:
@@ -720,6 +724,9 @@ components:
         endDate:
           type: string
           format: date-time
+        timeZone:
+          type: string
+          nullable: true
         priority:
           type: integer
     UpdateCampaignRequest:
@@ -738,6 +745,9 @@ components:
         endDate:
           type: string
           format: date-time
+        timeZone:
+          type: string
+          nullable: true
         priority:
           type: integer
         status:

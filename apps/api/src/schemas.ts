@@ -11,6 +11,7 @@ export const campaignCreateSchema = z.object({
   description: z.string().nullable().optional(),
   startDate: z.string().datetime().nullable().optional(),
   endDate: z.string().datetime().nullable().optional(),
+  timeZone: z.string().min(1).nullable().optional(),
   priority: z.number().int().min(0),
 });
 
@@ -20,6 +21,7 @@ export const campaignUpdateSchema = z.object({
   description: z.string().nullable().optional(),
   startDate: z.string().datetime().nullable().optional(),
   endDate: z.string().datetime().nullable().optional(),
+  timeZone: z.string().min(1).nullable().optional(),
   priority: z.number().int().min(0),
 });
 

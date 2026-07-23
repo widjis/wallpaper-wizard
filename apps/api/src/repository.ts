@@ -74,6 +74,70 @@ function rangesOverlap(
   return aStart.getTime() <= bEnd.getTime() && bStart.getTime() <= aEnd.getTime();
 }
 
+function normalizeCampaignTimeZone(timeZone: string | null | undefined): string | null {
+  if (!timeZone) {
+    return null;
+  }
+
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone });
+    return timeZone;
+  } catch {
+    throw new Error(`Unsupported campaign timezone "${timeZone}"`);
+  }
+}
+
+function deriveCampaignStatus(options: {
+  startDate: Date | null;
+  endDate: Date | null;
+  previousStatus?: CampaignStatus;
+  referenceDate?: Date;
+}): CampaignStatus {
+  const referenceDate = options.referenceDate ?? new Date();
+
+  if (!options.startDate || !options.endDate) {
+    return options.previousStatus === CampaignStatus.ACTIVE
+      ? CampaignStatus.ACTIVE
+      : CampaignStatus.DRAFT;
+  }
+
+  if (options.startDate.getTime() > options.endDate.getTime()) {
+    throw new Error("Campaign end date must be after start date");
+  }
+
+  if (options.endDate.getTime() < referenceDate.getTime()) {
+    return CampaignStatus.COMPLETED;
+  }
+
+  if (options.previousStatus === CampaignStatus.ACTIVE) {
+    return CampaignStatus.ACTIVE;
+  }
+
+  return CampaignStatus.SCHEDULED;
+}
+
+function buildCampaignResponse(
+  campaign: Prisma.CampaignGetPayload<{
+    include: {
+      wallpaper: true;
+    };
+  }>,
+): CampaignSummary {
+  return {
+    id: campaign.id,
+    name: campaign.name,
+    wallpaperId: campaign.wallpaperId,
+    wallpaperTitle: campaign.wallpaper.title,
+    wallpaperImageUrl: buildWallpaperImageUrl(campaign.wallpaperId),
+    description: campaign.description,
+    startDate: campaign.startDate?.toISOString() ?? null,
+    endDate: campaign.endDate?.toISOString() ?? null,
+    timeZone: campaign.timeZone ?? null,
+    priority: campaign.priority,
+    status: mapCampaignStatus(campaign.status),
+  };
+}
+
 function mapDeploymentSourceType(campaignId: string | null): DeploymentLogItem["sourceType"] {
   return campaignId ? "CAMPAIGN" : "DEFAULT_WALLPAPER";
 }
@@ -641,18 +705,7 @@ export async function listCampaigns(): Promise<CampaignSummary[]> {
     orderBy: [{ startDate: "asc" }, { priority: "desc" }],
   });
 
-  return campaigns.map((campaign) => ({
-    id: campaign.id,
-    name: campaign.name,
-    wallpaperId: campaign.wallpaperId,
-    wallpaperTitle: campaign.wallpaper.title,
-    wallpaperImageUrl: buildWallpaperImageUrl(campaign.wallpaperId),
-    description: campaign.description,
-    startDate: campaign.startDate?.toISOString() ?? null,
-    endDate: campaign.endDate?.toISOString() ?? null,
-    priority: campaign.priority,
-    status: mapCampaignStatus(campaign.status),
-  }));
+  return campaigns.map((campaign) => buildCampaignResponse(campaign));
 }
 
 export async function createCampaignRecord(payload: {
@@ -661,6 +714,7 @@ export async function createCampaignRecord(payload: {
   description?: string | null;
   startDate?: string | null;
   endDate?: string | null;
+  timeZone?: string | null;
   priority: number;
   createdById: string;
 }): Promise<CampaignSummary> {
@@ -673,6 +727,8 @@ export async function createCampaignRecord(payload: {
 
   const startDate = payload.startDate ? new Date(payload.startDate) : null;
   const endDate = payload.endDate ? new Date(payload.endDate) : null;
+  const timeZone = normalizeCampaignTimeZone(payload.timeZone);
+  const status = deriveCampaignStatus({ startDate, endDate });
 
   const existingCampaigns = await prisma.campaign.findMany({
     where: {
@@ -696,8 +752,9 @@ export async function createCampaignRecord(payload: {
       description: payload.description ?? null,
       startDate,
       endDate,
+      timeZone,
       priority: payload.priority,
-      status: CampaignStatus.SCHEDULED,
+      status,
       createdById: payload.createdById,
     },
     include: { wallpaper: true },
@@ -722,18 +779,7 @@ export async function createCampaignRecord(payload: {
     },
   });
 
-  return {
-    id: campaign.id,
-    name: campaign.name,
-    wallpaperId: campaign.wallpaperId,
-    wallpaperTitle: campaign.wallpaper.title,
-    wallpaperImageUrl: buildWallpaperImageUrl(campaign.wallpaperId),
-    description: campaign.description,
-    startDate: campaign.startDate?.toISOString() ?? null,
-    endDate: campaign.endDate?.toISOString() ?? null,
-    priority: campaign.priority,
-    status: mapCampaignStatus(campaign.status),
-  };
+  return buildCampaignResponse(campaign);
 }
 
 export async function updateCampaignRecord(payload: {
@@ -743,6 +789,7 @@ export async function updateCampaignRecord(payload: {
   description?: string | null;
   startDate?: string | null;
   endDate?: string | null;
+  timeZone?: string | null;
   priority: number;
   updatedById: string;
 }): Promise<CampaignSummary> {
@@ -764,6 +811,12 @@ export async function updateCampaignRecord(payload: {
 
   const startDate = payload.startDate ? new Date(payload.startDate) : null;
   const endDate = payload.endDate ? new Date(payload.endDate) : null;
+  const timeZone = normalizeCampaignTimeZone(payload.timeZone);
+  const status = deriveCampaignStatus({
+    startDate,
+    endDate,
+    previousStatus: existingCampaign.status,
+  });
 
   const existingCampaigns = await prisma.campaign.findMany({
     where: {
@@ -790,7 +843,9 @@ export async function updateCampaignRecord(payload: {
       description: payload.description ?? null,
       startDate,
       endDate,
+      timeZone,
       priority: payload.priority,
+      status,
     },
     include: {
       wallpaper: true,
@@ -805,18 +860,7 @@ export async function updateCampaignRecord(payload: {
     },
   });
 
-  return {
-    id: campaign.id,
-    name: campaign.name,
-    wallpaperId: campaign.wallpaperId,
-    wallpaperTitle: campaign.wallpaper.title,
-    wallpaperImageUrl: buildWallpaperImageUrl(campaign.wallpaperId),
-    description: campaign.description,
-    startDate: campaign.startDate?.toISOString() ?? null,
-    endDate: campaign.endDate?.toISOString() ?? null,
-    priority: campaign.priority,
-    status: mapCampaignStatus(campaign.status),
-  };
+  return buildCampaignResponse(campaign);
 }
 
 export async function deleteCampaignRecord(payload: {
@@ -876,6 +920,7 @@ export async function duplicateCampaignRecord(payload: {
       description: existingCampaign.description,
       startDate: null,
       endDate: null,
+      timeZone: existingCampaign.timeZone,
       priority: existingCampaign.priority,
       status: CampaignStatus.DRAFT,
       createdById: payload.createdById,
@@ -902,18 +947,7 @@ export async function duplicateCampaignRecord(payload: {
     },
   });
 
-  return {
-    id: duplicated.id,
-    name: duplicated.name,
-    wallpaperId: duplicated.wallpaperId,
-    wallpaperTitle: duplicated.wallpaper.title,
-    wallpaperImageUrl: buildWallpaperImageUrl(duplicated.wallpaperId),
-    description: duplicated.description,
-    startDate: duplicated.startDate?.toISOString() ?? null,
-    endDate: duplicated.endDate?.toISOString() ?? null,
-    priority: duplicated.priority,
-    status: mapCampaignStatus(duplicated.status),
-  };
+  return buildCampaignResponse(duplicated);
 }
 
 export async function activateCampaignRecord(payload: {
@@ -957,18 +991,7 @@ export async function activateCampaignRecord(payload: {
     },
   });
 
-  return {
-    id: activated.id,
-    name: activated.name,
-    wallpaperId: activated.wallpaperId,
-    wallpaperTitle: activated.wallpaper.title,
-    wallpaperImageUrl: buildWallpaperImageUrl(activated.wallpaperId),
-    description: activated.description,
-    startDate: activated.startDate?.toISOString() ?? null,
-    endDate: activated.endDate?.toISOString() ?? null,
-    priority: activated.priority,
-    status: mapCampaignStatus(activated.status),
-  };
+  return buildCampaignResponse(activated);
 }
 
 export async function cancelCampaignRecord(payload: {
@@ -1005,18 +1028,7 @@ export async function cancelCampaignRecord(payload: {
     },
   });
 
-  return {
-    id: cancelled.id,
-    name: cancelled.name,
-    wallpaperId: cancelled.wallpaperId,
-    wallpaperTitle: cancelled.wallpaper.title,
-    wallpaperImageUrl: buildWallpaperImageUrl(cancelled.wallpaperId),
-    description: cancelled.description,
-    startDate: cancelled.startDate?.toISOString() ?? null,
-    endDate: cancelled.endDate?.toISOString() ?? null,
-    priority: cancelled.priority,
-    status: mapCampaignStatus(cancelled.status),
-  };
+  return buildCampaignResponse(cancelled);
 }
 
 export async function getQueueState(): Promise<QueueState> {

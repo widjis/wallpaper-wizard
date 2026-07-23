@@ -62,6 +62,7 @@ This document defines the target logical database model for CWCM.
 | description | Text nullable     | Description                                              |
 | startDate   | DateTime nullable | Scheduled start                                          |
 | endDate     | DateTime nullable | Scheduled end                                            |
+| timeZone    | String nullable   | IANA timezone used to interpret the scheduled local time |
 | priority    | Int               | Higher value wins when rules allow                       |
 | status      | Enum              | `DRAFT`, `SCHEDULED`, `ACTIVE`, `COMPLETED`, `CANCELLED` |
 | createdById | UUID              | FK to User                                               |

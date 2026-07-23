@@ -290,6 +290,10 @@ Prepare the product for operational deployment.
   - `nginx` returned `502` because it still targeted a stale `api` container IP after container recreation
   - `docker/nginx.conf` now uses Docker DNS re-resolution through `resolver 127.0.0.11` and variable-based upstreams for both `api` and `web`
   - follow-up correction: when `proxy_pass` used variable upstreams with embedded URI fragments, API requests started returning `404`; the config now preserves the original request URI so `/api/...` reaches Fastify unchanged
+- campaign scheduling follow-up on 2026-07-23:
+  - campaign create/update payloads now support an explicit IANA timezone string so operators can choose the effective schedule timezone from the form
+  - the frontend now converts `datetime-local` values between the selected timezone and stored UTC timestamps instead of assuming the browser timezone blindly
+  - duplicate campaign flows still create a `DRAFT`, but saving a valid start/end schedule now correctly recalculates the campaign status to `SCHEDULED`
 - residual gap: the Ubuntu target host still needs explicit `docker compose up` validation to prove the CIFS-backed `sysvol` volume mounts successfully with the provided credentials
 - final dev-host preview recheck after the authenticated thumbnail bridge change was noisy because `localhost:8080` intermittently refused connections, but the database-only storage cleanup itself was validated through DB finalization, API access, and successful builds
 - residual release blockers are documented in this roadmap and supporting docs

@@ -153,7 +153,7 @@ export function downloadTextFile(filename: string, content: string, mimeType = "
   URL.revokeObjectURL(objectUrl);
 }
 
-export function formatDateTime(value: string | null | undefined): string {
+export function formatDateTime(value: string | null | undefined, timeZone?: string | null): string {
   if (!value) return "—";
   return new Intl.DateTimeFormat("en-GB", {
     day: "2-digit",
@@ -161,15 +161,18 @@ export function formatDateTime(value: string | null | undefined): string {
     year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
+    timeZone: timeZone ?? undefined,
+    timeZoneName: timeZone ? "short" : undefined,
   }).format(new Date(value));
 }
 
-export function formatDate(value: string | null | undefined): string {
+export function formatDate(value: string | null | undefined, timeZone?: string | null): string {
   if (!value) return "—";
   return new Intl.DateTimeFormat("en-GB", {
     day: "2-digit",
     month: "short",
     year: "numeric",
+    timeZone: timeZone ?? undefined,
   }).format(new Date(value));
 }
 

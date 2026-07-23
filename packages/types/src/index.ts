@@ -52,6 +52,7 @@ export interface CampaignSummary {
   description: string | null;
   startDate: string | null;
   endDate: string | null;
+  timeZone: string | null;
   priority: number;
   status: CampaignStatus;
 }

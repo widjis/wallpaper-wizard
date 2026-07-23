@@ -76,13 +76,14 @@ Target behavior:
 - duplicate campaign
 - activate immediately
 - cancel campaign
-- set start date, end date, priority, and status
+- set start date, end date, timezone, priority, and status
 
 Current state:
 
 - live campaign list and mutation flows exist in the web UI
 - overlap conflicts are validated in the API
 - create, edit, delete, duplicate, activate-now, and cancel flows are wired
+- campaigns now persist an explicit IANA timezone for the scheduled window, and duplicate-then-edit flows can transition from `DRAFT` to `SCHEDULED` when a valid schedule is saved
 - Viewer users now get read-only access while mutation actions are limited to Administrator and Operator
 
 ### 5. Queue Management

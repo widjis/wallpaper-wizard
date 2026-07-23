@@ -135,7 +135,7 @@ function Dashboard() {
               <span className="flex items-center gap-1.5">
                 <Calendar className="h-3 w-3" />
                 {currentCampaign
-                  ? `${formatDateTime(currentCampaign.startDate)} - ${formatDateTime(currentCampaign.endDate)}`
+                  ? `${formatDateTime(currentCampaign.startDate, currentCampaign.timeZone)} - ${formatDateTime(currentCampaign.endDate, currentCampaign.timeZone)}`
                   : "Not scheduled"}
               </span>
             }
@@ -153,7 +153,9 @@ function Dashboard() {
             footer={
               <span className="flex items-center gap-1.5">
                 <Calendar className="h-3 w-3" />
-                {nextCampaign ? `Starts ${formatDateTime(nextCampaign.startDate)}` : "No queue"}
+                {nextCampaign
+                  ? `Starts ${formatDateTime(nextCampaign.startDate, nextCampaign.timeZone)}`
+                  : "No queue"}
               </span>
             }
           />
@@ -221,12 +223,12 @@ function Dashboard() {
                   <Row
                     icon={Calendar}
                     label="Started"
-                    value={formatDateTime(currentCampaign?.startDate)}
+                    value={formatDateTime(currentCampaign?.startDate, currentCampaign?.timeZone)}
                   />
                   <Row
                     icon={Calendar}
                     label="Ends"
-                    value={formatDateTime(currentCampaign?.endDate)}
+                    value={formatDateTime(currentCampaign?.endDate, currentCampaign?.timeZone)}
                   />
                   <Row
                     icon={Clock}
@@ -279,7 +281,7 @@ function Dashboard() {
                     <div className="flex-1 min-w-0">
                       <div className="text-sm font-semibold truncate">{campaign.name}</div>
                       <div className="text-xs text-muted-foreground">
-                        Starts on {formatDateTime(campaign.startDate)}
+                        Starts on {formatDateTime(campaign.startDate, campaign.timeZone)}
                       </div>
                     </div>
                     <Badge className="bg-info-soft text-info hover:bg-info-soft whitespace-nowrap">

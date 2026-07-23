@@ -81,6 +81,7 @@ model Campaign {
   description  String?
   startDate    DateTime?
   endDate      DateTime?
+  timeZone     String?
   priority     Int
   status       CampaignStatus
   createdById  String

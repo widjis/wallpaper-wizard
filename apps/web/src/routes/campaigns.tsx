@@ -16,7 +16,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { apiDelete, apiGet, apiPatch, apiPost, formatDate } from "@/lib/api";
+import { apiDelete, apiGet, apiPatch, apiPost, formatDateTime } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { canManageCampaigns } from "@/lib/roles";
 import {
@@ -57,9 +57,103 @@ function statusColor(s: string) {
   return "bg-muted text-muted-foreground";
 }
 
+const fallbackTimeZones = [
+  "Asia/Jakarta",
+  "Asia/Makassar",
+  "Asia/Jayapura",
+  "Asia/Singapore",
+  "UTC",
+  "Europe/London",
+  "America/New_York",
+];
+
+function getBrowserTimeZone() {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+}
+
+function padTimePart(value: number) {
+  return String(value).padStart(2, "0");
+}
+
+function getTimeZoneDateParts(date: Date, timeZone: string) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(date);
+
+  const values = Object.fromEntries(
+    parts.filter((part) => part.type !== "literal").map((part) => [part.type, part.value]),
+  );
+
+  return {
+    year: Number(values.year),
+    month: Number(values.month),
+    day: Number(values.day),
+    hour: Number(values.hour === "24" ? "00" : values.hour),
+    minute: Number(values.minute),
+    second: Number(values.second),
+  };
+}
+
+function toDateTimeLocalValue(value: string | null | undefined, timeZone: string) {
+  if (!value) return "";
+  const parts = getTimeZoneDateParts(new Date(value), timeZone);
+  return `${parts.year}-${padTimePart(parts.month)}-${padTimePart(parts.day)}T${padTimePart(parts.hour)}:${padTimePart(parts.minute)}`;
+}
+
+function toUtcIsoString(value: string, timeZone: string) {
+  const [datePart, timePart] = value.split("T");
+  if (!datePart || !timePart) {
+    return null;
+  }
+
+  const [year, month, day] = datePart.split("-").map(Number);
+  const [hour, minute] = timePart.split(":").map(Number);
+  const utcGuess = Date.UTC(year, month - 1, day, hour, minute, 0);
+
+  const guessParts = getTimeZoneDateParts(new Date(utcGuess), timeZone);
+  const guessAsUtc = Date.UTC(
+    guessParts.year,
+    guessParts.month - 1,
+    guessParts.day,
+    guessParts.hour,
+    guessParts.minute,
+    guessParts.second,
+  );
+  const firstPass = utcGuess - (guessAsUtc - utcGuess);
+  const firstPassParts = getTimeZoneDateParts(new Date(firstPass), timeZone);
+  const firstPassAsUtc = Date.UTC(
+    firstPassParts.year,
+    firstPassParts.month - 1,
+    firstPassParts.day,
+    firstPassParts.hour,
+    firstPassParts.minute,
+    firstPassParts.second,
+  );
+
+  return new Date(firstPass - (firstPassAsUtc - utcGuess)).toISOString();
+}
+
+function buildTimeZoneOptions(preferredTimeZone: string) {
+  const supported =
+    typeof Intl.supportedValuesOf === "function"
+      ? Intl.supportedValuesOf("timeZone")
+      : fallbackTimeZones;
+
+  return [...new Set([preferredTimeZone, ...fallbackTimeZones, ...supported])];
+}
+
 function Page() {
   const queryClient = useQueryClient();
   const { isAuthenticated, session } = useAuth();
+  const browserTimeZone = useMemo(() => getBrowserTimeZone(), []);
+  const timeZoneOptions = useMemo(() => buildTimeZoneOptions(browserTimeZone), [browserTimeZone]);
   const [showForm, setShowForm] = useState(false);
   const [editingCampaignId, setEditingCampaignId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -72,6 +166,7 @@ function Page() {
     description: "",
     startDate: "",
     endDate: "",
+    timeZone: browserTimeZone,
     priority: "5",
   });
 
@@ -97,8 +192,9 @@ function Page() {
         name: form.name,
         wallpaperId: form.wallpaperId,
         description: form.description || null,
-        startDate: form.startDate ? new Date(form.startDate).toISOString() : null,
-        endDate: form.endDate ? new Date(form.endDate).toISOString() : null,
+        startDate: form.startDate ? toUtcIsoString(form.startDate, form.timeZone) : null,
+        endDate: form.endDate ? toUtcIsoString(form.endDate, form.timeZone) : null,
+        timeZone: form.timeZone,
         priority: Number(form.priority),
       }),
     onSuccess: () => {
@@ -109,6 +205,7 @@ function Page() {
         description: "",
         startDate: "",
         endDate: "",
+        timeZone: browserTimeZone,
         priority: "5",
       });
       queryClient.invalidateQueries({ queryKey: ["campaigns"] });
@@ -130,8 +227,9 @@ function Page() {
         name: form.name,
         wallpaperId: form.wallpaperId,
         description: form.description || null,
-        startDate: form.startDate ? new Date(form.startDate).toISOString() : null,
-        endDate: form.endDate ? new Date(form.endDate).toISOString() : null,
+        startDate: form.startDate ? toUtcIsoString(form.startDate, form.timeZone) : null,
+        endDate: form.endDate ? toUtcIsoString(form.endDate, form.timeZone) : null,
+        timeZone: form.timeZone,
         priority: Number(form.priority),
       });
     },
@@ -211,6 +309,7 @@ function Page() {
       description: "",
       startDate: "",
       endDate: "",
+      timeZone: browserTimeZone,
       priority: "5",
     });
   }
@@ -342,6 +441,19 @@ function Page() {
                 onChange={(event) => setForm({ ...form, endDate: event.target.value })}
               />
             </Field>
+            <Field label="Time zone">
+              <select
+                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                value={form.timeZone}
+                onChange={(event) => setForm({ ...form, timeZone: event.target.value })}
+              >
+                {timeZoneOptions.map((item) => (
+                  <option key={item} value={item}>
+                    {item}
+                  </option>
+                ))}
+              </select>
+            </Field>
             <Field label="Priority">
               <Input
                 value={form.priority}
@@ -398,8 +510,8 @@ function Page() {
           ) : null}
           <div className="mt-3 text-sm text-muted-foreground">
             {editingCampaignId
-              ? "Edit the selected campaign and save your changes."
-              : "Create a new scheduled campaign."}
+              ? "Edit the selected campaign, including its effective timezone, and save your changes."
+              : "Create a campaign draft or a scheduled campaign with an explicit timezone."}
           </div>
           {editingCampaignId ? (
             <div className="mt-3 text-sm text-success">Editing mode is active.</div>
@@ -452,8 +564,9 @@ function Page() {
               campaignRows.map((item) => {
                 const name = item.name;
                 const wallpaper = item.wallpaperTitle;
-                const start = formatDate(item.startDate);
-                const end = formatDate(item.endDate);
+                const effectiveTimeZone = item.timeZone ?? browserTimeZone;
+                const start = formatDateTime(item.startDate, effectiveTimeZone);
+                const end = formatDateTime(item.endDate, effectiveTimeZone);
                 const priority = item.priority >= 8 ? "High" : "Normal";
                 const status = item.status.charAt(0) + item.status.slice(1).toLowerCase();
                 return (
@@ -486,8 +599,9 @@ function Page() {
                               name: item.name,
                               wallpaperId: item.wallpaperId,
                               description: item.description ?? "",
-                              startDate: item.startDate ? item.startDate.slice(0, 16) : "",
-                              endDate: item.endDate ? item.endDate.slice(0, 16) : "",
+                              startDate: toDateTimeLocalValue(item.startDate, effectiveTimeZone),
+                              endDate: toDateTimeLocalValue(item.endDate, effectiveTimeZone),
+                              timeZone: effectiveTimeZone,
                               priority: String(item.priority),
                             });
                           }}
