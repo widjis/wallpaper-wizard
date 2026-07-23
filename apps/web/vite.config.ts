@@ -12,6 +12,9 @@ export default defineConfig({
     // nitro/vite builds from this
     server: { entry: "server" },
   },
+  nitro: {
+    preset: "node-server",
+  },
   vite: {
     preview: {
       allowedHosts: ["mtiwallpaper.merdekabattery.com", "localhost", "127.0.0.1"],
