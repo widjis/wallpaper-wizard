@@ -57,3 +57,4 @@ If a release must be rolled back:
 - if deployment verification returns `FAILED`, review the stored deployment message before retrying so transport and share issues are visible to operators
 - in the default Compose topology, `api` and `web` are internal-only services and should be reached through the proxy rather than direct host-port access
 - the API container now expects `/app/sysvol` to be backed by the `sysvol` Docker volume, not by application-level SMB client code
+- if `proxy` returns `502` after an `api` or `web` container recreation, verify whether `nginx` is still targeting a stale container IP; the repository now uses Docker DNS re-resolution through `127.0.0.11` to reduce this risk

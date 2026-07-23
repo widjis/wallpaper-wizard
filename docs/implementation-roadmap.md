@@ -286,6 +286,9 @@ Prepare the product for operational deployment.
 - Docker hardening follow-up on 2026-07-23:
   - `docker-compose.yml` now restores the internal `redis` service while building `REDIS_URL` dynamically from `REDIS_HOST` and `REDIS_PORT`
   - deployment target paths shown in the API/UI now keep the SYSVOL UNC display path while the runtime writes to the mounted local path
+- proxy runtime diagnosis on 2026-07-23 identified an additional Docker-network issue:
+  - `nginx` returned `502` because it still targeted a stale `api` container IP after container recreation
+  - `docker/nginx.conf` now uses Docker DNS re-resolution through `resolver 127.0.0.11` and variable-based upstreams for both `api` and `web`
 - residual gap: the Ubuntu target host still needs explicit `docker compose up` validation to prove the CIFS-backed `sysvol` volume mounts successfully with the provided credentials
 - final dev-host preview recheck after the authenticated thumbnail bridge change was noisy because `localhost:8080` intermittently refused connections, but the database-only storage cleanup itself was validated through DB finalization, API access, and successful builds
 - residual release blockers are documented in this roadmap and supporting docs
