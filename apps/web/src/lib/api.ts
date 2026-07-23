@@ -1,6 +1,7 @@
 export const apiBaseUrl = import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "") ?? "/api";
 
 const authStorageKey = "cwcm.auth";
+const authChangeEventName = "cwcm:auth-changed";
 
 export interface AuthSession {
   token: string;
@@ -24,18 +25,44 @@ export function getStoredSession(): AuthSession | null {
   }
 }
 
+function notifyAuthChange() {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event(authChangeEventName));
+}
+
 export function storeSession(session: AuthSession | null) {
   if (typeof window === "undefined") return;
   if (!session) {
     window.localStorage.removeItem(authStorageKey);
+    notifyAuthChange();
     return;
   }
   window.localStorage.setItem(authStorageKey, JSON.stringify(session));
+  notifyAuthChange();
+}
+
+export function subscribeAuthChange(callback: () => void): () => void {
+  if (typeof window === "undefined") {
+    return () => undefined;
+  }
+
+  const handler = () => callback();
+  window.addEventListener(authChangeEventName, handler);
+  window.addEventListener("storage", handler);
+  return () => {
+    window.removeEventListener(authChangeEventName, handler);
+    window.removeEventListener("storage", handler);
+  };
 }
 
 async function parseResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const payload = (await response.json().catch(() => null)) as { message?: string } | null;
+
+    if (response.status === 401) {
+      storeSession(null);
+    }
+
     throw new Error(payload?.message ?? `Request failed with status ${response.status}`);
   }
 

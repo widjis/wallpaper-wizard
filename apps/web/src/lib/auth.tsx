@@ -1,5 +1,11 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { apiPost, getStoredSession, storeSession, type AuthSession } from "./api";
+import {
+  apiPost,
+  getStoredSession,
+  storeSession,
+  subscribeAuthChange,
+  type AuthSession,
+} from "./api";
 
 interface AuthContextValue {
   session: AuthSession | null;
@@ -18,6 +24,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     setSession(getStoredSession());
     setIsReady(true);
+
+    return subscribeAuthChange(() => {
+      setSession(getStoredSession());
+    });
   }, []);
 
   const value = useMemo<AuthContextValue>(
