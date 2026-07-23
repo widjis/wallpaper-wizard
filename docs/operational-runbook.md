@@ -16,10 +16,11 @@ Provide the minimum operating procedure for deploying, validating, and rolling b
 5. Run `npm run build:api`
 6. Run `npm run build:web`
 7. Start runtime services through Docker Compose or the selected process supervisor
+8. Access the application through the reverse proxy entrypoint on host port `9105`
 
 ## Validation Steps
 
-1. Open the web login page
+1. Open the web login page through `http://<host>:9105`
 2. Authenticate with a valid local user
 3. Confirm dashboard data loads
 4. Upload a wallpaper
@@ -52,3 +53,4 @@ If a release must be rolled back:
 - Keep SYSVOL deployment verification limited to controlled test assets until the environment is confirmed stable
 - Revalidate SMB access whenever domain credentials or target paths change
 - if deployment verification returns `FAILED`, review the stored deployment message before retrying so transport and share issues are visible to operators
+- in the default Compose topology, `api` and `web` are internal-only services and should be reached through the proxy rather than direct host-port access

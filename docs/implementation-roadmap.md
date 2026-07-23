@@ -235,6 +235,7 @@ Prepare the product for operational deployment.
 - [x] verify security controls
 - [x] finalize Docker Compose deployment guidance baseline
 - [ ] align `docker-compose.yml` with the current required runtime topology (`web`, `api`, `redis`, external PostgreSQL)
+- [x] align `docker-compose.yml` with the current required runtime topology (`proxy`, `web`, `api`, `redis`, external PostgreSQL)
 - [ ] harden API and web Dockerfiles for reproducible Compose startup
 - [ ] define Prisma/database initialization flow for Docker deployment
 - [ ] run end-to-end `docker compose build` and `docker compose up` validation
@@ -273,6 +274,10 @@ Prepare the product for operational deployment.
 - Docker-first planning was added on 2026-07-23:
   - `docs/docker-implementation-plan.md` now defines the execution slices required before BullMQ migration resumes
   - next infrastructure priority is Docker reproducibility and container-runtime validation, not queue replacement
+- Compose topology was updated on 2026-07-23:
+  - host-facing access now goes through `proxy` on port `9105`
+  - `api:3000`, `web:3001`, and `redis:6379` are now internal-only services on the Docker network
+  - frontend API calls now target relative `/api` routing through the reverse proxy instead of direct container hostnames
 - final dev-host preview recheck after the authenticated thumbnail bridge change was noisy because `localhost:8080` intermittently refused connections, but the database-only storage cleanup itself was validated through DB finalization, API access, and successful builds
 - residual release blockers are documented in this roadmap and supporting docs
 - production deployment baseline now assumes the existing PostgreSQL instance defined in `.env`

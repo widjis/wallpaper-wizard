@@ -1,5 +1,4 @@
-export const apiBaseUrl =
-  import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "") ?? "http://localhost:3000/api";
+export const apiBaseUrl = import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "") ?? "/api";
 
 const authStorageKey = "cwcm.auth";
 

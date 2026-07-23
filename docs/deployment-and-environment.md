@@ -16,15 +16,30 @@ Document the environment inputs required for CWCM MVP deployment without storing
 
 Implemented baseline:
 
-- `docker-compose.yml` with `redis`, `api`, and `web` services
+- `docker-compose.yml` with `proxy`, `redis`, `api`, and `web` services
 - `docker/api.Dockerfile`
 - `docker/web.Dockerfile`
+- `docker/nginx.conf` reverse-proxy routing for `/` and `/api`
 - validated backend config loader in `apps/api/src/config.ts`
 
 Current limitation:
 
 - Docker Compose baseline exists, but deployment to SMB / SYSVOL is still simulated in application logic and not yet mounted or copied into the target share
 - production database is expected to be external and supplied through `.env`, not provisioned by Compose
+- the Compose reverse-proxy baseline is now the public entrypoint, so API and web are intended to stay internal-only on the Docker network
+
+## Container Access Model
+
+- public browser entrypoint: `proxy` on host port `9105`
+- frontend container: internal-only `web:3001`
+- backend container: internal-only `api:3000`
+- Redis container: internal-only `redis:6379`
+
+Operational note:
+
+- browser traffic should use `http://<host>:9105`
+- frontend API calls should use relative `/api` routing through the reverse proxy
+- backend port `3000` should not be published to the host in the default deployment shape to avoid common host-port conflicts
 
 ## Required Environment Groups
 
