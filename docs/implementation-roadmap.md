@@ -236,11 +236,11 @@ Prepare the product for operational deployment.
 - [x] finalize Docker Compose deployment guidance baseline
 - [ ] align `docker-compose.yml` with the current required runtime topology (`web`, `api`, `redis`, external PostgreSQL)
 - [x] align `docker-compose.yml` with the current required runtime topology (`proxy`, `web`, `api`, `redis`, external PostgreSQL)
-- [ ] harden API and web Dockerfiles for reproducible Compose startup
+- [x] harden API and web Dockerfiles for reproducible Compose startup
 - [ ] define Prisma/database initialization flow for Docker deployment
 - [ ] run end-to-end `docker compose build` and `docker compose up` validation
 - [ ] verify scheduler, deployment, and authentication behavior inside Docker runtime
-- [ ] document the SMB / SYSVOL container-runtime failure mode precisely
+- [x] document the SMB / SYSVOL container-runtime failure mode precisely
 
 ### Output
 
@@ -278,6 +278,15 @@ Prepare the product for operational deployment.
   - host-facing access now goes through `proxy` on port `9105`
   - `api:3000`, `web:3001`, and `redis:6379` are now internal-only services on the Docker network
   - frontend API calls now target relative `/api` routing through the reverse proxy instead of direct container hostnames
+- SYSVOL deployment strategy was updated on 2026-07-23:
+  - the previous `smb2` application-level write path was removed because it conflicted with the mounted target path model used in Docker
+  - `docker-compose.yml` now defines a named `sysvol` volume backed by the Docker local volume driver with `type=cifs`
+  - the API container now writes deployment output to `/app/sysvol/...` through local filesystem I/O and still verifies checksum by reading the mounted file back
+  - `CIFS_SHARE_PATH`, domain credentials, and `CIFS_VERS` are now consumed by Docker volume mount options on the Ubuntu host rather than by backend application code
+- Docker hardening follow-up on 2026-07-23:
+  - `docker-compose.yml` now restores the internal `redis` service while building `REDIS_URL` dynamically from `REDIS_HOST` and `REDIS_PORT`
+  - deployment target paths shown in the API/UI now keep the SYSVOL UNC display path while the runtime writes to the mounted local path
+- residual gap: the Ubuntu target host still needs explicit `docker compose up` validation to prove the CIFS-backed `sysvol` volume mounts successfully with the provided credentials
 - final dev-host preview recheck after the authenticated thumbnail bridge change was noisy because `localhost:8080` intermittently refused connections, but the database-only storage cleanup itself was validated through DB finalization, API access, and successful builds
 - residual release blockers are documented in this roadmap and supporting docs
 - production deployment baseline now assumes the existing PostgreSQL instance defined in `.env`

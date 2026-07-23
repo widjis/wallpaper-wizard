@@ -10,13 +10,15 @@ Provide the minimum operating procedure for deploying, validating, and rolling b
    - PostgreSQL external connectivity
    - Redis host and port
    - SMB / SYSVOL credentials and target path
-2. Run `npm install`
-3. Run `npm run db:prepare`
-4. Run `npm run prisma:push`
-5. Run `npm run build:api`
-6. Run `npm run build:web`
-7. Start runtime services through Docker Compose or the selected process supervisor
-8. Access the application through the reverse proxy entrypoint on host port `9105`
+2. Ensure the Ubuntu Docker host has CIFS support available for the Docker local volume driver
+3. Start runtime services through Docker Compose or the selected process supervisor
+4. Access the application through the reverse proxy entrypoint on host port `9105`
+5. If the database is not prepared yet, run:
+   - `npm install`
+   - `npm run db:prepare`
+   - `npm run prisma:push`
+   - `npm run build:api`
+   - `npm run build:web`
 
 ## Validation Steps
 
@@ -45,12 +47,13 @@ If a release must be rolled back:
 ## Current Known Blockers
 
 - dashboard and settings response baselines in this workspace are still slightly above the PRD target of `< 2 seconds`
-- SYSVOL verification currently returns a structured failed result with message `the share is not valid`, so target-environment SMB validation is not yet closed
+- SYSVOL verification now depends on successful creation of the CIFS-backed Docker volume on the Ubuntu host; this must be validated in the target environment before the blocker can be closed
 
 ## Operator Notes
 
 - Do not commit secret values into repository docs
 - Keep SYSVOL deployment verification limited to controlled test assets until the environment is confirmed stable
-- Revalidate SMB access whenever domain credentials or target paths change
+- Revalidate Docker CIFS mount access whenever domain credentials, SMB version, or target paths change
 - if deployment verification returns `FAILED`, review the stored deployment message before retrying so transport and share issues are visible to operators
 - in the default Compose topology, `api` and `web` are internal-only services and should be reached through the proxy rather than direct host-port access
+- the API container now expects `/app/sysvol` to be backed by the `sysvol` Docker volume, not by application-level SMB client code

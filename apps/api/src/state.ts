@@ -176,7 +176,7 @@ const deploymentLogs: DeploymentLogItem[] = [
     triggerSource: "SCHEDULER",
     operator: "scheduler",
     message: "Published wallpaper to SYSVOL and verified checksum.",
-    targetPath: `${appConfig.CIFS_SHARE_PATH}${appConfig.SHARED_FOLDER_PATH.startsWith("/") ? appConfig.SHARED_FOLDER_PATH : `/${appConfig.SHARED_FOLDER_PATH}`}`,
+    targetPath: appConfig.SYSVOL_DISPLAY_PATH,
     targetFilename: "Wallpaper.jpg",
     verifiedExists: true,
     verifiedSizeBytes: 2400000,
@@ -197,7 +197,7 @@ const deploymentLogs: DeploymentLogItem[] = [
     triggerSource: "SCHEDULER",
     operator: "scheduler",
     message: "Verification completed successfully.",
-    targetPath: `${appConfig.CIFS_SHARE_PATH}${appConfig.SHARED_FOLDER_PATH.startsWith("/") ? appConfig.SHARED_FOLDER_PATH : `/${appConfig.SHARED_FOLDER_PATH}`}`,
+    targetPath: appConfig.SYSVOL_DISPLAY_PATH,
     targetFilename: "Wallpaper.jpg",
     verifiedExists: true,
     verifiedSizeBytes: 2400000,
@@ -230,7 +230,7 @@ const activityLogs: ActivityLogItem[] = [
 ];
 
 const settings: AppSettings = {
-  sysvolPath: `${appConfig.CIFS_SHARE_PATH}${appConfig.SHARED_FOLDER_PATH.startsWith("/") ? appConfig.SHARED_FOLDER_PATH : `/${appConfig.SHARED_FOLDER_PATH}`}`,
+  sysvolPath: appConfig.SYSVOL_DISPLAY_PATH,
   wallpaperFilename: "Wallpaper.jpg",
   defaultWallpaperId: "wallpaper-1",
   storageLocation: appConfig.APP_STORAGE_PATH,

@@ -8,8 +8,13 @@ services:
       - .env
     environment:
       PORT: 3000
+      REDIS_URL: redis://${REDIS_HOST}:${REDIS_PORT}
     expose:
       - "3000"
+    volumes:
+      - sysvol:/app/sysvol
+    depends_on:
+      - redis
 
   web:
     build:
@@ -34,3 +39,17 @@ services:
     depends_on:
       - web
       - api
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    expose:
+      - "6379"
+
+volumes:
+  sysvol:
+    driver: local
+    driver_opts:
+      type: cifs
+      o: username=${DOMAIN_USERNAME},password=${DOMAIN_PASSWORD},domain=${DOMAIN_NAME},vers=${CIFS_VERS},uid=1000,gid=1000,file_mode=0664,dir_mode=0775
+      device: ${CIFS_SHARE_PATH}

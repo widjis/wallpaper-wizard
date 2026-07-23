@@ -8,7 +8,7 @@ Document the environment inputs required for CWCM MVP deployment without storing
 
 - runtime model: Docker Compose
 - deployment engine runtime: Linux containers
-- SYSVOL publishing: SMB access from containerized worker or service
+- SYSVOL publishing: CIFS-mounted Docker volume on the Ubuntu host, exposed into the API container as a local filesystem path
 - authentication for MVP: local application auth
 - future capability available in environment: LDAP / Active Directory integration
 
@@ -21,10 +21,11 @@ Implemented baseline:
 - `docker/web.Dockerfile`
 - `docker/nginx.conf` reverse-proxy routing for `/` and `/api`
 - validated backend config loader in `apps/api/src/config.ts`
+- API deployment writer now targets the mounted SYSVOL path through local filesystem I/O instead of direct SMB library calls
 
 Current limitation:
 
-- Docker Compose baseline exists, but deployment to SMB / SYSVOL is still simulated in application logic and not yet mounted or copied into the target share
+- Docker Compose now defines a named CIFS volume for SYSVOL, but target-environment validation still depends on Ubuntu host support for the Docker local volume driver with `type=cifs`
 - production database is expected to be external and supplied through `.env`, not provisioned by Compose
 - the Compose reverse-proxy baseline is now the public entrypoint, so API and web are intended to stay internal-only on the Docker network
 
@@ -75,9 +76,10 @@ Required keys observed in `.env`:
 
 Usage notes:
 
-- `CIFS_SHARE_PATH` identifies the SYSVOL share root
-- `SHARED_FOLDER_PATH` appears to define the target path used by the application inside the mounted or copied share flow
-- domain credentials should only be used by the deployment component that needs SYSVOL access
+- `CIFS_SHARE_PATH` identifies the SYSVOL share root used by the Docker volume driver on the Ubuntu host
+- `CIFS_VERS` is consumed by the Docker volume mount options and should match the server's supported SMB dialect
+- `SHARED_FOLDER_PATH` must be the in-container mounted target path, for example `/app/sysvol/mbma.com/scripts`
+- domain credentials are consumed by the Docker volume mount and should not be re-implemented in application code
 
 ### LDAP
 
@@ -129,7 +131,7 @@ Usage notes:
 
 ## Next Environment Tasks
 
-- decide exact container-to-SMB strategy for production execution
 - add env validation for optional versus mandatory keys per phase
 - add secret rotation and operational runbook guidance
 - document fallback local-development strategy if a standalone PostgreSQL container is ever needed outside production
+- validate the Ubuntu Docker host can create the CIFS-backed `sysvol` volume with the current credentials and SMB version

@@ -124,3 +124,4 @@ npm run lint
 - Do not treat current live UI wiring as proof that the PRD is fully implemented; review `docs/ui-ux-wiring-audit.md` and `docs/implementation-roadmap.md` first.
 - Before any non-trivial change, check the active phase in `docs/implementation-roadmap.md`.
 - Current infrastructure priority is Docker-first deployment hardening; BullMQ planning resumes only after the Compose baseline is validated.
+- The current Docker deployment model assumes an Ubuntu host where Docker mounts the SYSVOL share as a CIFS-backed named volume and exposes it to the API container at `/app/sysvol`.

@@ -15,7 +15,7 @@ import { buildChecksum } from "./services.js";
 export const prisma = new PrismaClient();
 
 const defaultSettings = {
-  sysvolPath: `${appConfig.CIFS_SHARE_PATH}${appConfig.SHARED_FOLDER_PATH.startsWith("/") ? appConfig.SHARED_FOLDER_PATH : `/${appConfig.SHARED_FOLDER_PATH}`}`,
+  sysvolPath: appConfig.SYSVOL_DISPLAY_PATH,
   wallpaperFilename: "Wallpaper.jpg",
   defaultWallpaperId: null,
   storageLocation: appConfig.APP_STORAGE_PATH,

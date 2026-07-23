@@ -19,7 +19,7 @@ The current baseline is not yet implementation-complete for a production-like Co
 - `docker-compose.yml` currently defines only `api` and `web`, while repository docs already claim a `redis` service exists
 - API and web container startup assumptions have not been revalidated against the latest scheduler and deployment behavior
 - container runtime flow for Prisma generation / schema sync is not yet formalized
-- the SMB / SYSVOL dependency is still environment-sensitive and remains the main external integration risk
+- the SMB / SYSVOL dependency is still environment-sensitive even after moving to a CIFS-backed Docker volume on the Ubuntu host
 - there is not yet a documented, repeatable `docker compose up` validation sequence tied to the latest application behavior
 
 ## Goal
@@ -66,7 +66,7 @@ Tasks:
 - verify Prisma client generation inside image build or container startup
 - verify runtime command for Fastify production start
 - ensure required env vars are validated clearly at startup
-- confirm image includes everything needed for scheduler and SMB publishing code paths
+- confirm image includes everything needed for scheduler and mounted SYSVOL publishing code paths
 
 Definition of done:
 
@@ -163,10 +163,10 @@ Objective:
 
 Tasks:
 
-- validate whether the container can reach the SMB target using current credentials and path settings
-- confirm whether additional Linux packages, mount strategy, or runtime privileges are required
-- capture exact failure mode when SYSVOL verification fails
-- decide whether publish should remain direct SMB copy or move to a mounted-share strategy
+- validate whether the Ubuntu Docker host can create the CIFS-backed `sysvol` volume using current credentials and path settings
+- confirm whether additional host packages or Docker privileges are required for the `local` volume driver with `type=cifs`
+- capture exact failure mode when SYSVOL verification fails after the mounted-share migration
+- validate the mounted-share strategy end to end
 
 Definition of done:
 

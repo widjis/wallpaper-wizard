@@ -4,6 +4,30 @@ import { z } from "zod";
 dotenv.config({ path: new URL("../../../.env", import.meta.url) });
 dotenv.config({ path: new URL("../../../.env.runtime", import.meta.url), override: true });
 
+function normalizeLocalPath(value: string) {
+  return value.replace(/\/+$/, "");
+}
+
+function toSysvolDisplayPath(cifsSharePath: string, sharedFolderPath: string) {
+  const normalizedShareRoot = cifsSharePath.replace(/\/+$/, "");
+  const normalizedTarget = normalizeLocalPath(sharedFolderPath);
+
+  if (!normalizedTarget.startsWith("/")) {
+    return `${normalizedShareRoot}/${normalizedTarget.replace(/^\/+/, "")}`;
+  }
+
+  const mountPrefix = "/app/sysvol";
+  if (normalizedTarget === mountPrefix) {
+    return normalizedShareRoot;
+  }
+
+  if (normalizedTarget.startsWith(`${mountPrefix}/`)) {
+    return `${normalizedShareRoot}${normalizedTarget.slice(mountPrefix.length)}`;
+  }
+
+  return normalizedTarget;
+}
+
 const configSchema = z
   .object({
     PORT: z.coerce.number().default(3000),
@@ -46,9 +70,13 @@ const configSchema = z
           return url.toString();
         })();
 
+    const sharedFolderPath = normalizeLocalPath(env.SHARED_FOLDER_PATH);
+
     return {
       ...env,
       POSTGRES_APP_URL: appUrl,
+      SHARED_FOLDER_PATH: sharedFolderPath,
+      SYSVOL_DISPLAY_PATH: toSysvolDisplayPath(env.CIFS_SHARE_PATH, sharedFolderPath),
       AUTH_SEED_ADMIN_USERNAME: env.LOCAL_ADMIN?.trim() || env.AUTH_SEED_ADMIN_USERNAME,
       AUTH_SEED_ADMIN_PASSWORD: env.LOCAL_PASS?.trim() || env.AUTH_SEED_ADMIN_PASSWORD,
     };
