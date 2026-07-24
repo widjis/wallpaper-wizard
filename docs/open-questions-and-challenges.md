@@ -135,17 +135,18 @@ Verification:
 - browser retest passed for campaign edit and settings save on 2026-07-23
 - direct API calls also passed for campaign create, campaign update, and settings update
 
-### 8. SYSVOL Verification In Current Workspace
+### 8. SYSVOL Verification In Target Environment
 
-Observed limitation:
+Resolved finding:
 
-- the deployment verification flow now completes in the UI and records a structured result even when the underlying SMB publish fails
-- the current workspace still reports `the share is not valid` when verifying against the configured SYSVOL target
+- end-to-end publishing through the CIFS-mounted SYSVOL volume has been tested successfully
+- recurring scheduler checks previously rewrote the same file even when its content had not changed
+- publishing now compares SHA-256 checksums before writing and skips the write when SYSVOL already contains identical content
 
 Impact:
 
-- operator UX is now stable enough to surface deployment outcomes instead of raw request failures
-- true end-to-end SYSVOL validation remains pending until the target environment exposes a valid share path and access model
+- frequent scheduler polling no longer causes unnecessary SYSVOL writes or modified-time churn
+- a changed or missing target file is still published and verified normally
 
 ### 9. Wallpaper Storage Migration
 

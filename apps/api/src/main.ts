@@ -406,7 +406,9 @@ server.post("/api/deployments/:deploymentId/verify", async (request, reply) => {
         published.checksumSha256 === deployment.wallpaper.checksumSha256 ? "SUCCESS" : "WARNING",
       message:
         published.checksumSha256 === deployment.wallpaper.checksumSha256
-          ? "SYSVOL publish and checksum verification succeeded."
+          ? published.written
+            ? "SYSVOL wallpaper updated and checksum verification succeeded."
+            : "SYSVOL wallpaper already matches the source checksum; write skipped."
           : "SYSVOL publish completed but checksum differs from source file.",
       verifiedExists: published.exists,
       verifiedSizeBytes: published.sizeBytes,

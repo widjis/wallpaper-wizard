@@ -21,7 +21,6 @@ The repository now contains:
 The repository still does not fully contain:
 
 - real Redis / BullMQ workers wired into runtime, even though an in-process recurring scheduler now exists in the API runtime
-- production SMB deployment execution validated end-to-end in the target environment
 - Nginx reverse proxy
 - full RBAC and user administration workflow
 - performance tuning sufficient to meet the PRD dashboard target of under 2 seconds in the current workspace
@@ -172,6 +171,7 @@ cwcm/
 ## Non-Functional Design Notes
 
 - deployment actions must be idempotent where practical
+- SYSVOL publishing through the CIFS-mounted filesystem compares SHA-256 checksums and skips rewriting an identical target
 - retry policies must distinguish temporary network failure from validation failure
 - audit logs must preserve actor and action metadata
 - configuration changes must be protected by role checks and logged

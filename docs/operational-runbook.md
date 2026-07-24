@@ -32,7 +32,8 @@ Provide the minimum operating procedure for deploying, validating, and rolling b
 8. Save a settings change and confirm the updated value reloads
 9. Trigger manual deployment
 10. Trigger deployment verification
-11. Confirm deployment history and activity log entries exist
+11. Trigger deployment verification again without changing the wallpaper and confirm the result reports that the SYSVOL write was skipped
+12. Confirm deployment history and activity log entries exist
 
 ## Rollback Baseline
 
@@ -47,13 +48,13 @@ If a release must be rolled back:
 ## Current Known Blockers
 
 - dashboard and settings response baselines in this workspace are still slightly above the PRD target of `< 2 seconds`
-- SYSVOL verification now depends on successful creation of the CIFS-backed Docker volume on the Ubuntu host; this must be validated in the target environment before the blocker can be closed
 
 ## Operator Notes
 
 - Do not commit secret values into repository docs
 - Keep SYSVOL deployment verification limited to controlled test assets until the environment is confirmed stable
 - Revalidate Docker CIFS mount access whenever domain credentials, SMB version, or target paths change
+- repeated scheduler or verification cycles must report a skipped write when the mounted SYSVOL file already matches the source checksum
 - if deployment verification returns `FAILED`, review the stored deployment message before retrying so transport and share issues are visible to operators
 - in the default Compose topology, `api` and `web` are internal-only services and should be reached through the proxy rather than direct host-port access
 - the API container now expects `/app/sysvol` to be backed by the `sysvol` Docker volume, not by application-level SMB client code

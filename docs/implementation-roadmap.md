@@ -3,8 +3,8 @@
 ## Status Summary
 
 - Active phase: Phase 5
-- Overall status: MVP foundation is substantially implemented, and the residual hybrid mock/fallback UI backlog has now been cleared across the main web menus
-- Last update reason: Docker-first implementation planning was added so deployment reproducibility is closed before BullMQ migration resumes
+- Overall status: MVP foundation is substantially implemented, target-environment SYSVOL publishing is validated, and recurring writes are checksum-idempotent
+- Last update reason: CIFS-mounted SYSVOL publishing now skips writes when the target SHA-256 checksum already matches the source
 
 ## Phase 0 - Documentation Baseline And Repo Assessment
 
@@ -150,7 +150,7 @@ Implement campaign orchestration and wallpaper publishing.
 - scheduler trigger endpoint and manual deployment trigger endpoint were added
 - overlap validation blocks conflicting campaign creation
 - SMB publish utility was implemented in backend code
-- residual gap: end-to-end SYSVOL validation in the target environment is still pending
+- target-environment SYSVOL publishing was subsequently validated successfully by the operator
 
 ## Phase 4 - Frontend Integration
 
@@ -257,7 +257,7 @@ Prepare the product for operational deployment.
 - settings responses remain limited to operational values and do not expose bootstrap secrets from `.env`
 - dashboard response baseline measured approximately `2087-2167 ms` across three authenticated runs in this workspace, which is close to but still above the PRD target of `< 2 seconds`
 - settings response baseline measured approximately `2094-2235 ms` across three authenticated runs in this workspace, which is acceptable for current MVP hardening evidence but indicates the runtime still needs optimization
-- deployment verify now returns a structured deployment result to the UI even when SMB validation fails, but the current environment still reports `the share is not valid`
+- deployment verify returns a structured deployment result and target-environment CIFS/SYSVOL publishing has been validated successfully
 - default wallpaper fallback was implemented on 2026-07-23:
   - admins can choose `defaultWallpaperId` from the Settings page
   - deployment selection now follows `active campaign -> eligible scheduled campaign -> default wallpaper`
@@ -283,6 +283,8 @@ Prepare the product for operational deployment.
   - `docker-compose.yml` now defines a named `sysvol` volume backed by the Docker local volume driver with `type=cifs`
   - the API container now writes deployment output to `/app/sysvol/...` through local filesystem I/O and still verifies checksum by reading the mounted file back
   - `CIFS_SHARE_PATH`, domain credentials, and `CIFS_VERS` are now consumed by Docker volume mount options on the Ubuntu host rather than by backend application code
+  - publishing now reads the mounted target first and skips `writeFile` when its SHA-256 checksum already matches the source wallpaper
+  - the idempotent publish change passed `git diff --check`; API lint/build could not be rerun in the current shell because Node.js package-manager executables are unavailable
 - Docker hardening follow-up on 2026-07-23:
   - `docker-compose.yml` now restores the internal `redis` service while building `REDIS_URL` dynamically from `REDIS_HOST` and `REDIS_PORT`
   - deployment target paths shown in the API/UI now keep the SYSVOL UNC display path while the runtime writes to the mounted local path
@@ -294,7 +296,7 @@ Prepare the product for operational deployment.
   - campaign create/update payloads now support an explicit IANA timezone string so operators can choose the effective schedule timezone from the form
   - the frontend now converts `datetime-local` values between the selected timezone and stored UTC timestamps instead of assuming the browser timezone blindly
   - duplicate campaign flows still create a `DRAFT`, but saving a valid start/end schedule now correctly recalculates the campaign status to `SCHEDULED`
-- residual gap: the Ubuntu target host still needs explicit `docker compose up` validation to prove the CIFS-backed `sysvol` volume mounts successfully with the provided credentials
+- the operator subsequently confirmed that the CIFS-backed SYSVOL target can be mounted and written successfully in the target environment
 - final dev-host preview recheck after the authenticated thumbnail bridge change was noisy because `localhost:8080` intermittently refused connections, but the database-only storage cleanup itself was validated through DB finalization, API access, and successful builds
 - residual release blockers are documented in this roadmap and supporting docs
 - production deployment baseline now assumes the existing PostgreSQL instance defined in `.env`

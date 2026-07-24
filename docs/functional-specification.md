@@ -132,6 +132,8 @@ Target behavior:
 - find active campaign
 - locate wallpaper
 - validate file
+- compare the source checksum with the existing SYSVOL file
+- skip the write when the existing SYSVOL file already has the same checksum
 - publish to SYSVOL target
 - replace `Wallpaper.jpg`
 - verify deployment result
@@ -142,7 +144,8 @@ Current state:
 
 - deployment trigger and verification endpoints exist
 - SMB publish utility now exists in backend code
-- production validation is still blocked in the current environment because SYSVOL verification reports `the share is not valid`
+- CIFS-mounted SYSVOL publishing has been validated successfully in the target environment
+- recurring deployment checks are idempotent: a matching SYSVOL file is verified without being written again
 - the deployment page now renders live wallpaper preview, live target detail, and result-aware deployment steps
 - deployment history can now record default wallpaper deployments without an active campaign
 
@@ -158,8 +161,8 @@ Target behavior:
 
 Current state:
 
-- verification path now attempts publish and checksum comparison in backend code
-- full operational verification remains blocked until the target environment exposes a valid share path and the deployment flow can be exercised end-to-end
+- verification reads and compares the existing SYSVOL checksum before deciding whether a write is required
+- end-to-end SYSVOL publishing has been validated successfully in the target environment
 
 ### 9. Deployment History
 
@@ -247,4 +250,4 @@ Current state:
 
 ## Current Implementation Verdict
 
-The repository now satisfies a substantial part of the MVP functional surface, including default wallpaper fallback behavior, but it still does not fully satisfy the PRD because backend-grade RBAC depth, automated scheduler workers, and fully validated SYSVOL deployment are not yet complete.
+The repository now satisfies a substantial part of the MVP functional surface, including default wallpaper fallback and validated SYSVOL publishing, but it still does not fully satisfy the PRD because backend-grade RBAC depth and Redis / BullMQ-backed scheduler workers are not yet complete.
