@@ -143,7 +143,7 @@ Current runtime keys include:
 | --------- | ----------------- | ------------------------------- |
 | id        | UUID              | Primary key                     |
 | userId    | UUID              | FK to User                      |
-| tokenId   | String            | Unique session token identifier |
+| token     | String            | Unique cryptographically random bearer token |
 | expiresAt | DateTime          | Session expiry                  |
 | revokedAt | DateTime nullable | Revocation timestamp            |
 | createdAt | DateTime          | Creation timestamp              |

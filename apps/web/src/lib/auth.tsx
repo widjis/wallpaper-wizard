@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   apiPost,
+  apiGet,
   getStoredSession,
   storeSession,
   subscribeAuthChange,
@@ -22,12 +23,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isReady, setIsReady] = useState(false);
 
   useEffect(() => {
-    setSession(getStoredSession());
-    setIsReady(true);
+    const storedSession = getStoredSession();
+    let cancelled = false;
 
-    return subscribeAuthChange(() => {
+    const hydrateSession = async () => {
+      if (!storedSession) {
+        if (!cancelled) setIsReady(true);
+        return;
+      }
+
+      try {
+        const validated = await apiGet<Pick<AuthSession, "user" | "expiresAt">>("/auth/session");
+        const refreshedSession = { ...storedSession, ...validated };
+        storeSession(refreshedSession);
+        if (!cancelled) setSession(refreshedSession);
+      } catch {
+        // A 401 clears storage centrally. Temporary server failures keep the
+        // existing session so the UI can offer retry instead of forcing login.
+        if (!cancelled) setSession(getStoredSession());
+      } finally {
+        if (!cancelled) setIsReady(true);
+      }
+    };
+
+    void hydrateSession();
+
+    const unsubscribe = subscribeAuthChange(() => {
       setSession(getStoredSession());
     });
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
   }, []);
 
   const value = useMemo<AuthContextValue>(
@@ -41,11 +68,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setSession(result);
       },
       logout: async () => {
-        if (session?.token) {
-          await apiPost<void>("/auth/logout");
+        try {
+          if (session?.token) {
+            await apiPost<void>("/auth/logout");
+          }
+        } finally {
+          storeSession(null);
+          setSession(null);
         }
-        storeSession(null);
-        setSession(null);
       },
     }),
     [isReady, session],

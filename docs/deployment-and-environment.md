@@ -20,6 +20,8 @@ Implemented baseline:
 - `docker/api.Dockerfile`
 - `docker/web.Dockerfile`
 - `docker/nginx.conf` reverse-proxy routing for `/` and `/api`
+- the API container exposes a Compose healthcheck on `/health`; the proxy waits for API health before startup
+- upstream API connection failures are normalized by nginx to a structured `503 API_UNAVAILABLE` response, distinct from authentication `401` responses
 - validated backend config loader in `apps/api/src/config.ts`
 - API deployment writer now targets the mounted SYSVOL path through local filesystem I/O instead of direct SMB library calls
 

@@ -1,10 +1,13 @@
 openapi: 3.1.0
 info:
   title: CWCM API
-  version: 0.1.0-draft
+  version: 0.1.1-draft
   description: >
     Draft API contract baseline for Corporate Wallpaper Campaign Manager.
     This document reflects the intended backend surface required by the PRD.
+    Every bearer-protected operation may return the standard 401 error response;
+    the reverse proxy may return a structured 503 API_UNAVAILABLE response when
+    the application server cannot be reached.
 servers:
   - url: http://localhost:3000/api
     description: Local development
@@ -36,6 +39,23 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AuthSession"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /auth/session:
+    get:
+      tags: [Auth]
+      summary: Validate and inspect the current session
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Current authenticated session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
   /auth/logout:
     post:
       tags: [Auth]
@@ -548,6 +568,16 @@ components:
       type: http
       scheme: bearer
       bearerFormat: Token
+      description: >
+        Protected endpoints return the standard Unauthorized response when the
+        token is missing, expired, revoked, unknown, or belongs to an inactive user.
+  responses:
+    Unauthorized:
+      description: Authentication is missing or the session is no longer valid
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
   parameters:
     WallpaperId:
       name: wallpaperId
@@ -588,11 +618,33 @@ components:
           type: string
     AuthSession:
       type: object
+      required: [token, expiresAt, user]
       properties:
         token:
           type: string
+        expiresAt:
+          type: string
+          format: date-time
         user:
           $ref: "#/components/schemas/User"
+    SessionStatus:
+      type: object
+      required: [expiresAt, user]
+      properties:
+        expiresAt:
+          type: string
+          format: date-time
+        user:
+          $ref: "#/components/schemas/User"
+    ErrorResponse:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          examples: [SESSION_INVALID]
+        message:
+          type: string
     User:
       type: object
       properties:

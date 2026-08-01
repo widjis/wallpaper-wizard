@@ -16,6 +16,7 @@ Decision:
 Impact:
 
 - phase 2 backend can implement local auth and session management without blocking on AD integration
+- session lifecycle hardening now validates persisted browser sessions at startup, centralizes `401` handling, and uses cryptographically random bearer tokens; migration to hashed server-side tokens or secure HttpOnly cookies remains a future security hardening decision
 - user provisioning remains application-managed for the MVP
 
 ### 2. Container Runtime And SYSVOL Access

@@ -144,5 +144,11 @@ export interface LoginPayload {
 
 export interface LoginResponse {
   token: string;
+  expiresAt: string;
+  user: UserSummary;
+}
+
+export interface SessionResponse {
+  expiresAt: string;
   user: UserSummary;
 }

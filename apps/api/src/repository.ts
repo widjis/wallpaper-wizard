@@ -18,6 +18,7 @@ import {
   UserRole,
 } from "@prisma/client";
 import bcrypt from "bcryptjs";
+import { randomBytes } from "node:crypto";
 import { prisma } from "./prisma.js";
 import { appConfig } from "./config.js";
 
@@ -381,12 +382,13 @@ export async function loginWithLocalAuth(
     throw new Error("Invalid username or password");
   }
 
-  const token = `local-${user.id}-${Date.now()}`;
+  const token = randomBytes(32).toString("base64url");
+  const expiresAt = new Date(Date.now() + 8 * 60 * 60 * 1000);
   await prisma.session.create({
     data: {
       userId: user.id,
       token,
-      expiresAt: new Date(Date.now() + 8 * 60 * 60 * 1000),
+      expiresAt,
     },
   });
 
@@ -399,6 +401,7 @@ export async function loginWithLocalAuth(
 
   return {
     token,
+    expiresAt: expiresAt.toISOString(),
     user: {
       id: user.id,
       username: user.username,
@@ -409,22 +412,27 @@ export async function loginWithLocalAuth(
   };
 }
 
-export async function getUserByToken(token: string): Promise<UserSummary | null> {
+export async function getSessionByToken(
+  token: string,
+): Promise<{ user: UserSummary; expiresAt: string } | null> {
   const session = await prisma.session.findUnique({
     where: { token },
     include: { user: true },
   });
 
-  if (!session || session.revokedAt || session.expiresAt < new Date()) {
+  if (!session || session.revokedAt || session.expiresAt < new Date() || !session.user.isActive) {
     return null;
   }
 
   return {
-    id: session.user.id,
-    username: session.user.username,
-    role: mapRole(session.user.role),
-    isActive: session.user.isActive,
-    lastLoginAt: session.user.lastLoginAt?.toISOString() ?? null,
+    expiresAt: session.expiresAt.toISOString(),
+    user: {
+      id: session.user.id,
+      username: session.user.username,
+      role: mapRole(session.user.role),
+      isActive: session.user.isActive,
+      lastLoginAt: session.user.lastLoginAt?.toISOString() ?? null,
+    },
   };
 }
 

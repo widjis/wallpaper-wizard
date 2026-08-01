@@ -5,6 +5,7 @@ const authChangeEventName = "cwcm:auth-changed";
 
 export interface AuthSession {
   token: string;
+  expiresAt: string;
   user: {
     id: string;
     username: string;
@@ -14,13 +15,30 @@ export interface AuthSession {
   };
 }
 
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+    public readonly code?: string,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
 export function getStoredSession(): AuthSession | null {
   if (typeof window === "undefined") return null;
   const raw = window.localStorage.getItem(authStorageKey);
   if (!raw) return null;
   try {
-    return JSON.parse(raw) as AuthSession;
+    const session = JSON.parse(raw) as Partial<AuthSession>;
+    if (!session.token || !session.user) {
+      window.localStorage.removeItem(authStorageKey);
+      return null;
+    }
+    return session as AuthSession;
   } catch {
+    window.localStorage.removeItem(authStorageKey);
     return null;
   }
 }
@@ -55,15 +73,26 @@ export function subscribeAuthChange(callback: () => void): () => void {
   };
 }
 
+async function throwResponseError(response: Response): Promise<never> {
+  const payload = (await response.json().catch(() => null)) as {
+    code?: string;
+    message?: string;
+  } | null;
+
+  if (response.status === 401) {
+    storeSession(null);
+  }
+
+  throw new ApiError(
+    payload?.message ?? `Request failed with status ${response.status}`,
+    response.status,
+    payload?.code,
+  );
+}
+
 async function parseResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as { message?: string } | null;
-
-    if (response.status === 401) {
-      storeSession(null);
-    }
-
-    throw new Error(payload?.message ?? `Request failed with status ${response.status}`);
+    return throwResponseError(response);
   }
 
   if (response.status === 204) {
@@ -160,8 +189,7 @@ export async function apiImageUrl(path: string): Promise<string> {
   });
 
   if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as { message?: string } | null;
-    throw new Error(payload?.message ?? `Image request failed with status ${response.status}`);
+    return throwResponseError(response);
   }
 
   const blob = await response.blob();

@@ -23,6 +23,9 @@ Current state:
 
 - local login screen exists
 - bearer-token session state exists in the API and web client
+- the web client validates persisted sessions through `GET /api/auth/session` before treating startup authentication as ready
+- expired, revoked, unknown, and inactive-user sessions return a structured `401`; all frontend request types clear invalid local session state consistently
+- temporary API/proxy failures preserve the local session and are treated separately from authentication expiry
 - basic route protection exists in the web shell
 - role-based navigation and role-based action enforcement now exist in the main web flows
 - backend authorization remains minimal compared with full production-grade RBAC
