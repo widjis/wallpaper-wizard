@@ -22,6 +22,18 @@ tags:
   - name: Settings
   - name: Health
 paths:
+  /health:
+    get:
+      tags: [Health]
+      summary: Check API health through the public reverse-proxy path
+      responses:
+        "200":
+          description: API and required dependency health
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
   /auth/login:
     post:
       tags: [Auth]

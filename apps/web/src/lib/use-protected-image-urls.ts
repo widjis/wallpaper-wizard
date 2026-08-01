@@ -15,9 +15,16 @@ export function useProtectedImageUrls<T>({
   getImageUrl,
 }: UseProtectedImageUrlsOptions<T>) {
   const [imageUrls, setImageUrls] = useState<Record<string, string>>({});
+  const requestKey = JSON.stringify(
+    (items ?? []).map((item) => ({
+      id: getId(item),
+      source: getImageUrl(item) ?? null,
+    })),
+  );
 
   useEffect(() => {
-    if (!enabled || !items?.length) {
+    const requests = JSON.parse(requestKey) as Array<{ id: string; source: string | null }>;
+    if (!enabled || !requests.length) {
       setImageUrls({});
       return;
     }
@@ -26,15 +33,18 @@ export function useProtectedImageUrls<T>({
     const allocated: string[] = [];
 
     void Promise.all(
-      items.map(async (item) => {
-        const source = getImageUrl(item);
+      requests.map(async ({ id, source }) => {
         if (!source) {
-          return [getId(item), ""] as const;
+          return [id, ""] as const;
         }
 
-        const objectUrl = await apiImageUrl(resolveApiPath(source));
-        allocated.push(objectUrl);
-        return [getId(item), objectUrl] as const;
+        try {
+          const objectUrl = await apiImageUrl(resolveApiPath(source));
+          allocated.push(objectUrl);
+          return [id, objectUrl] as const;
+        } catch {
+          return [id, ""] as const;
+        }
       }),
     )
       .then((entries) => {
@@ -49,17 +59,13 @@ export function useProtectedImageUrls<T>({
           Object.fromEntries(entries.filter(([, url]) => Boolean(url))) as Record<string, string>,
         );
       })
-      .catch(() => {
-        if (!cancelled) {
-          setImageUrls({});
-        }
-      });
+      .catch(() => undefined);
 
     return () => {
       cancelled = true;
       allocated.forEach((url) => URL.revokeObjectURL(url));
     };
-  }, [enabled, getId, getImageUrl, items]);
+  }, [enabled, requestKey]);
 
   return imageUrls;
 }

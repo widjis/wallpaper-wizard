@@ -120,6 +120,7 @@ Implement the initial backend contracts, persistence layer, and local authentica
 - local auth login endpoint exists and non-auth `/api/*` routes require bearer token
 - repository runtime now reads and writes to the external PostgreSQL instance defined in `.env`
 - session lifecycle hardening on 2026-08-01 added cryptographically random tokens, explicit expiry metadata, `GET /api/auth/session`, inactive-user rejection, structured `401` responses without exception stacks, and consistent frontend invalid-session cleanup for JSON and image requests
+- protected-image lifecycle hardening on 2026-08-01 stabilized semantic request dependencies and object-URL cleanup so rerenders no longer refetch identical image blobs or revoke URLs still being displayed
 - `npm run lint` and `npm run build` passed on 2026-08-01 after the session lifecycle changes; lint retained seven pre-existing Fast Refresh warnings and reported no errors
 
 ## Phase 3 - Queue, Scheduler, And Deployment Engine
@@ -263,6 +264,7 @@ Prepare the product for operational deployment.
 - settings response baseline measured approximately `2094-2235 ms` across three authenticated runs in this workspace, which is acceptable for current MVP hardening evidence but indicates the runtime still needs optimization
 - deployment verify returns a structured deployment result and target-environment CIFS/SYSVOL publishing has been validated successfully
 - Docker configuration hardening on 2026-08-01 added an API `/health` check, health-gated proxy dependency, explicit nginx upstream timeouts, and structured `503 API_UNAVAILABLE` responses; runtime Compose validation remains pending because the available Docker CLI does not provide the Compose subcommand and no `docker-compose` executable is installed
+- production probes on 2026-08-01 returned five consecutive structured `401 AUTH_TOKEN_MISSING` responses from `/api/dashboard/summary` in `0.35-0.44s`, proving the public route and API were healthy after the reported intermittent `502`; `/api/health` was added so future monitoring can test the complete public proxy path without credentials
 - default wallpaper fallback was implemented on 2026-07-23:
   - admins can choose `defaultWallpaperId` from the Settings page
   - deployment selection now follows `active campaign -> eligible scheduled campaign -> default wallpaper`

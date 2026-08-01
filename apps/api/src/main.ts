@@ -97,8 +97,10 @@ function authenticationError(reply: FastifyReply, code: string, message: string)
   return reply.status(401).send({ code, message });
 }
 
+const publicApiPaths = new Set(["/api/auth/login", "/api/health"]);
+
 server.addHook("preHandler", async (request, reply) => {
-  if (!request.url.startsWith("/api") || request.url === "/api/auth/login") {
+  if (!request.url.startsWith("/api") || publicApiPaths.has(request.url)) {
     return;
   }
 
@@ -118,6 +120,10 @@ server.addHook("preHandler", async (request, reply) => {
 });
 
 server.get("/health", async () => {
+  return getHealthStatus();
+});
+
+server.get("/api/health", async () => {
   return getHealthStatus();
 });
 
