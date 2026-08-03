@@ -117,9 +117,19 @@ export function resolveApiPath(pathOrUrl: string): string {
 
 export async function apiGet<T>(path: string): Promise<T> {
   const session = getStoredSession();
-  const response = await fetch(`${apiBaseUrl}${path}`, {
-    headers: session?.token ? { Authorization: `Bearer ${session.token}` } : undefined,
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${apiBaseUrl}${path}`, {
+      headers: session?.token ? { Authorization: `Bearer ${session.token}` } : undefined,
+      signal: AbortSignal.timeout(15_000),
+    });
+  } catch {
+    throw new ApiError(
+      "The application server did not respond. Please try again.",
+      0,
+      "API_UNREACHABLE",
+    );
+  }
   return parseResponse<T>(response);
 }
 
@@ -184,9 +194,15 @@ export async function apiUpload<T>(path: string, formData: FormData): Promise<T>
 
 export async function apiImageUrl(path: string): Promise<string> {
   const session = getStoredSession();
-  const response = await fetch(buildApiUrl(path), {
-    headers: session?.token ? { Authorization: `Bearer ${session.token}` } : undefined,
-  });
+  let response: Response;
+  try {
+    response = await fetch(buildApiUrl(path), {
+      headers: session?.token ? { Authorization: `Bearer ${session.token}` } : undefined,
+      signal: AbortSignal.timeout(20_000),
+    });
+  } catch {
+    throw new ApiError("Wallpaper preview is unavailable.", 0, "API_UNREACHABLE");
+  }
 
   if (!response.ok) {
     return throwResponseError(response);

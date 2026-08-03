@@ -121,6 +121,8 @@ Implement the initial backend contracts, persistence layer, and local authentica
 - repository runtime now reads and writes to the external PostgreSQL instance defined in `.env`
 - session lifecycle hardening on 2026-08-01 added cryptographically random tokens, explicit expiry metadata, `GET /api/auth/session`, inactive-user rejection, structured `401` responses without exception stacks, and consistent frontend invalid-session cleanup for JSON and image requests
 - protected-image lifecycle hardening on 2026-08-01 stabilized semantic request dependencies and object-URL cleanup so rerenders no longer refetch identical image blobs or revoke URLs still being displayed
+- endpoint performance root-cause analysis on 2026-08-01 found that campaign, queue, deployment, and dashboard queries eagerly loaded PostgreSQL `Wallpaper.imageData` blobs through relations; list projections now exclude binary data, and dashboard deployment totals use a database aggregate instead of loading every deployment row
+- dashboard and queue failure states now remain distinct from valid empty data: failed dashboard requests no longer render false `No active campaign`, `Unknown`, and `0/0` values, GET requests time out explicitly after 15 seconds, and automatic retry/focus refetch no longer amplifies an unavailable API
 - `npm run lint` and `npm run build` passed on 2026-08-01 after the session lifecycle changes; lint retained seven pre-existing Fast Refresh warnings and reported no errors
 
 ## Phase 3 - Queue, Scheduler, And Deployment Engine

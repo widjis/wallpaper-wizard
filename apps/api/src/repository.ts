@@ -120,7 +120,7 @@ function deriveCampaignStatus(options: {
 function buildCampaignResponse(
   campaign: Prisma.CampaignGetPayload<{
     include: {
-      wallpaper: true;
+      wallpaper: { select: { title: true } };
     };
   }>,
 ): CampaignSummary {
@@ -147,7 +147,7 @@ function buildDeploymentResponse(
   item: Prisma.DeploymentLogGetPayload<{
     include: {
       campaign: true;
-      wallpaper: true;
+      wallpaper: { select: { title: true } };
     };
   }>,
   operatorOverride?: string,
@@ -573,8 +573,22 @@ export async function listWallpapers(): Promise<WallpaperSummary[]> {
   const settings = await getSettings();
   const wallpapers = await prisma.wallpaper.findMany({
     where: { deletedAt: null },
-    include: {
-      campaigns: true,
+    select: {
+      id: true,
+      title: true,
+      filename: true,
+      description: true,
+      tags: true,
+      resolution: true,
+      width: true,
+      height: true,
+      sizeBytes: true,
+      checksumSha256: true,
+      mimeType: true,
+      uploadedAt: true,
+      campaigns: {
+        select: { status: true },
+      },
     },
     orderBy: { uploadedAt: "desc" },
   });
@@ -709,7 +723,11 @@ export async function deleteWallpaperRecord(payload: {
 
 export async function listCampaigns(): Promise<CampaignSummary[]> {
   const campaigns = await prisma.campaign.findMany({
-    include: { wallpaper: true },
+    include: {
+      wallpaper: {
+        select: { title: true },
+      },
+    },
     orderBy: [{ startDate: "asc" }, { priority: "desc" }],
   });
 
@@ -1058,11 +1076,7 @@ export async function setQueueState(nextState: QueueState, updatedById?: string)
 export async function listQueue(): Promise<QueueItem[]> {
   const entries = await prisma.campaignQueueEntry.findMany({
     include: {
-      campaign: {
-        include: {
-          wallpaper: true,
-        },
-      },
+      campaign: true,
     },
     orderBy: { orderIndex: "asc" },
   });
@@ -1136,7 +1150,9 @@ export async function listDeployments(): Promise<DeploymentLogItem[]> {
   const items = await prisma.deploymentLog.findMany({
     include: {
       campaign: true,
-      wallpaper: true,
+      wallpaper: {
+        select: { title: true },
+      },
     },
     orderBy: { startedAt: "desc" },
   });
@@ -1333,10 +1349,13 @@ export async function updateSettingsRecord(
 }
 
 export async function buildDashboardSummary(): Promise<DashboardSummary> {
-  const [campaigns, deployments, activity, settings, queueState, schedulerRuntime] =
+  const [campaigns, deploymentCounts, activity, settings, queueState, schedulerRuntime] =
     await Promise.all([
       listCampaigns(),
-      listDeployments(),
+      prisma.deploymentLog.groupBy({
+        by: ["result"],
+        _count: { _all: true },
+      }),
       listActivityLogs(),
       getSettings(),
       getQueueState(),
@@ -1354,12 +1373,13 @@ export async function buildDashboardSummary(): Promise<DashboardSummary> {
   const currentCampaign = campaigns.find((campaign) => campaign.status === "ACTIVE") ?? null;
   const nextCampaign = campaigns.find((campaign) => campaign.status === "SCHEDULED") ?? null;
 
-  const deploymentStats = deployments.reduce(
+  const deploymentStats = deploymentCounts.reduce(
     (acc, deployment) => {
-      acc.total += 1;
-      if (deployment.result === "SUCCESS") acc.success += 1;
-      if (deployment.result === "FAILED") acc.failed += 1;
-      if (deployment.result === "WARNING") acc.warning += 1;
+      const count = deployment._count._all;
+      acc.total += count;
+      if (deployment.result === "SUCCESS") acc.success += count;
+      if (deployment.result === "FAILED") acc.failed += count;
+      if (deployment.result === "WARNING") acc.warning += count;
       return acc;
     },
     { success: 0, failed: 0, warning: 0, total: 0 },

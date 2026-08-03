@@ -47,6 +47,8 @@ Current state:
 
 - `GET /api/dashboard/summary` is wired and provides current campaign, next campaign, scheduler status, deployment stats, recent activity, and system information including the configured default wallpaper
 - upcoming campaign cards, wallpaper preview, deployment donut, and CTA behavior now use live data or explicit empty states
+- dashboard transport failures render an explicit unavailable/retry state and are never represented as valid empty campaign or deployment data
+- dashboard aggregation and campaign/deployment/queue list queries exclude wallpaper binary blobs; image bytes are fetched only from the dedicated protected image endpoint
 
 ### 3. Wallpaper Library
 
