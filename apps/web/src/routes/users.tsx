@@ -112,7 +112,7 @@ function Page() {
     onSuccess: () => {
       setDeleteUserId(null);
       queryClient.invalidateQueries({ queryKey: ["users"] });
-      toast.success("User deleted");
+      toast.success("User access removed");
     },
     onError: (error) => {
       toast.error(error instanceof Error ? error.message : "Failed to delete user");
@@ -366,9 +366,10 @@ function Page() {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete user?</AlertDialogTitle>
+            <AlertDialogTitle>Remove user access?</AlertDialogTitle>
             <AlertDialogDescription>
-              Delete the selected portal user and revoke active sessions.
+              Remove this user from the portal and revoke all active sessions. Historical ownership
+              and audit records will be preserved.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -381,7 +382,7 @@ function Page() {
                 }
               }}
             >
-              {deleteMutation.isPending ? "Deleting..." : "Delete"}
+              {deleteMutation.isPending ? "Removing..." : "Remove access"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

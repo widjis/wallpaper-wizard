@@ -29,6 +29,8 @@ Current state:
 - basic route protection exists in the web shell
 - role-based navigation and role-based action enforcement now exist in the main web flows
 - backend authorization remains minimal compared with full production-grade RBAC
+- deleting a portal account revokes its sessions, hides it from active user listings, and preserves historical wallpaper/campaign/settings ownership through a soft-delete tombstone
+- administrators cannot delete their own account or the last remaining active administrator
 
 ### 2. Dashboard
 

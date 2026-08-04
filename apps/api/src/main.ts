@@ -512,6 +512,7 @@ server.delete("/api/users/:userId", async (request, reply) => {
   } catch (error) {
     reply.status(400);
     return {
+      code: "USER_DELETE_REJECTED",
       message: error instanceof Error ? error.message : "User delete failed",
     };
   }

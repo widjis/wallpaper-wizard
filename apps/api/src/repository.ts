@@ -420,7 +420,13 @@ export async function getSessionByToken(
     include: { user: true },
   });
 
-  if (!session || session.revokedAt || session.expiresAt < new Date() || !session.user.isActive) {
+  if (
+    !session ||
+    session.revokedAt ||
+    session.expiresAt < new Date() ||
+    !session.user.isActive ||
+    session.user.deletedAt
+  ) {
     return null;
   }
 
@@ -450,6 +456,7 @@ export async function logoutByToken(token: string): Promise<void> {
 
 export async function listUsers(): Promise<UserSummary[]> {
   const users = await prisma.user.findMany({
+    where: { deletedAt: null },
     orderBy: { username: "asc" },
   });
 
@@ -512,6 +519,10 @@ export async function updateUserRecord(payload: {
     throw new Error("User not found");
   }
 
+  if (existingUser.deletedAt) {
+    throw new Error("User account has been deleted");
+  }
+
   const user = await prisma.user.update({
     where: { id: payload.userId },
     data: {
@@ -551,22 +562,51 @@ export async function deleteUserRecord(payload: {
     throw new Error("User not found");
   }
 
-  await prisma.session.updateMany({
-    where: { userId: existingUser.id, revokedAt: null },
-    data: { revokedAt: new Date() },
-  });
+  if (existingUser.deletedAt) {
+    return;
+  }
 
-  await prisma.user.delete({
-    where: { id: existingUser.id },
-  });
+  if (existingUser.id === payload.deletedById) {
+    throw new Error("You cannot delete your own account");
+  }
 
-  await prisma.activityLog.create({
-    data: {
-      actor: payload.deletedById,
-      action: "user.deleted",
-      detail: existingUser.username,
-    },
-  });
+  if (existingUser.role === UserRole.ADMINISTRATOR && existingUser.isActive) {
+    const otherActiveAdministrators = await prisma.user.count({
+      where: {
+        id: { not: existingUser.id },
+        role: UserRole.ADMINISTRATOR,
+        isActive: true,
+        deletedAt: null,
+      },
+    });
+
+    if (otherActiveAdministrators === 0) {
+      throw new Error("The last active administrator cannot be deleted");
+    }
+  }
+
+  const deletedAt = new Date();
+
+  await prisma.$transaction([
+    prisma.session.updateMany({
+      where: { userId: existingUser.id, revokedAt: null },
+      data: { revokedAt: deletedAt },
+    }),
+    prisma.user.update({
+      where: { id: existingUser.id },
+      data: {
+        isActive: false,
+        deletedAt,
+      },
+    }),
+    prisma.activityLog.create({
+      data: {
+        actor: payload.deletedById,
+        action: "user.deleted",
+        detail: existingUser.username,
+      },
+    }),
+  ]);
 }
 
 export async function listWallpapers(): Promise<WallpaperSummary[]> {

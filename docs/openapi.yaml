@@ -540,14 +540,20 @@ paths:
                 $ref: "#/components/schemas/User"
     delete:
       tags: [Auth]
-      summary: Delete user
+      summary: Remove user access while preserving historical ownership
       security:
         - bearerAuth: []
       parameters:
         - $ref: "#/components/parameters/UserId"
       responses:
         "204":
-          description: User deleted
+          description: User hidden from the portal, sessions revoked, and audit references preserved
+        "400":
+          description: Self-deletion or deletion of the last active administrator was rejected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /scheduler/run:
     post:
       tags: [Deployments]
