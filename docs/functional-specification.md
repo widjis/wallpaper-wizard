@@ -146,6 +146,7 @@ Current state:
 - SMB publish utility now exists in backend code
 - CIFS-mounted SYSVOL publishing has been validated successfully in the target environment
 - recurring deployment checks are idempotent: a matching SYSVOL file is verified without being written again
+- automatic scheduler polling now treats checksum-matching runs as heartbeat/runtime updates instead of user-facing deployment history entries
 - the deployment page now renders live wallpaper preview, live target detail, and result-aware deployment steps
 - deployment history can now record default wallpaper deployments without an active campaign
 

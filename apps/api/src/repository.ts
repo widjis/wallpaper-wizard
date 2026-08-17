@@ -214,7 +214,7 @@ async function completeExpiredActiveCampaigns(now: Date, actor: string) {
   ]);
 }
 
-async function resolveDeploymentSource(actor: string) {
+export async function resolveDeploymentSource(actor: string) {
   const now = new Date();
 
   await completeExpiredActiveCampaigns(now, actor);

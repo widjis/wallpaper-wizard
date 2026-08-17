@@ -7,6 +7,31 @@ function toRemotePath(filename: string) {
   return path.resolve(appConfig.SHARED_FOLDER_PATH, filename);
 }
 
+export async function inspectSysvolWallpaper(targetFilename: string) {
+  const remotePath = toRemotePath(targetFilename);
+  try {
+    const existingBuffer = await fs.readFile(remotePath);
+    return {
+      remotePath,
+      exists: true,
+      sizeBytes: existingBuffer.byteLength,
+      checksumSha256: buildChecksum(existingBuffer),
+    };
+  } catch (error) {
+    const errorCode = (error as NodeJS.ErrnoException).code;
+    if (errorCode !== "ENOENT") {
+      throw error;
+    }
+  }
+
+  return {
+    remotePath,
+    exists: false,
+    sizeBytes: 0,
+    checksumSha256: "",
+  };
+}
+
 export async function publishWallpaperToSysvol(payload: {
   imageData: Buffer;
   targetFilename: string;

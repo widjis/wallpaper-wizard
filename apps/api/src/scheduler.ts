@@ -1,12 +1,13 @@
 import type { FastifyBaseLogger } from "fastify";
 import { QueueState, TriggerSource } from "@prisma/client";
 import type { DeploymentLogItem } from "@cwcm/types";
-import { publishWallpaperToSysvol } from "./smb.js";
+import { inspectSysvolWallpaper, publishWallpaperToSysvol } from "./smb.js";
 import {
   createDeploymentRecord,
   finalizeDeploymentRecord,
   getDeploymentDetail,
   getQueueState,
+  resolveDeploymentSource,
   getSchedulerRuntimeState,
   getSettings,
   markSchedulerHeartbeat,
@@ -93,6 +94,36 @@ export async function runSchedulerCycle(options?: {
   }
 
   try {
+    const now = new Date();
+    const [source, settings] = await Promise.all([
+      resolveDeploymentSource("scheduler"),
+      getSettings(),
+    ]);
+    const target = await inspectSysvolWallpaper(settings.wallpaperFilename);
+
+    if (target.exists && target.checksumSha256 === source.wallpaper.checksumSha256) {
+      await updateSchedulerRuntimeState({
+        lastRunAt: now.toISOString(),
+        lastOutcome: "SKIPPED",
+        lastError: null,
+      });
+      await scheduleNextSchedulerRun(now);
+      logger?.info(
+        {
+          campaignId: source.campaignId,
+          targetFilename: settings.wallpaperFilename,
+          checksumSha256: target.checksumSha256,
+        },
+        "Scheduler cycle detected no wallpaper change; deployment log skipped",
+      );
+      return {
+        accepted: true,
+        queueState,
+        deployment: null,
+        reason: "No wallpaper change detected",
+      };
+    }
+
     const deployment = await executeDeployment(TriggerSource.SCHEDULER, "scheduler");
     await updateSchedulerRuntimeState({
       lastRunAt: deployment.startedAt,

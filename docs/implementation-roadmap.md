@@ -270,7 +270,7 @@ Prepare the product for operational deployment.
   - `schedulerIntervalMinutes` now controls real automatic execution timing
   - `queueState=PAUSED` now suppresses scheduler execution and clears `nextRunAt`
   - dashboard scheduler status now reflects persisted heartbeat, `lastRunAt`, and `nextRunAt`
-  - runtime verification confirmed deployment count increased automatically after resume and remained unchanged while paused
+  - runtime verification confirmed deployment count increased automatically after resume, remained unchanged while paused, and now stays unchanged on scheduler no-op cycles where the target checksum already matches
 - Docker-first planning was added on 2026-07-23:
   - `docs/docker-implementation-plan.md` now defines the execution slices required before BullMQ migration resumes
   - next infrastructure priority is Docker reproducibility and container-runtime validation, not queue replacement
