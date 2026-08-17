@@ -156,6 +156,7 @@ Current state:
 - automatic scheduler polling now treats checksum-matching runs as heartbeat/runtime updates instead of user-facing deployment history entries
 - the deployment page now renders live wallpaper preview, live target detail, and result-aware deployment steps
 - deployment history can now record default wallpaper deployments without an active campaign
+- deployment history responses are paginated so the `History & Audit` screen can stay responsive even after large scheduler volumes accumulate
 
 ### 8. Deployment Verification
 
@@ -182,6 +183,7 @@ Target behavior:
 Current state:
 
 - history view consumes live deployment API responses with explicit loading, empty, and error states
+- history view now requests deployment rows page-by-page instead of loading the entire deployment log at once
 
 ### 10. Activity Log
 

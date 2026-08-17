@@ -1186,18 +1186,42 @@ export async function removeQueueItemRecord(payload: {
   return listQueue();
 }
 
-export async function listDeployments(): Promise<DeploymentLogItem[]> {
-  const items = await prisma.deploymentLog.findMany({
-    include: {
-      campaign: true,
-      wallpaper: {
-        select: { title: true },
-      },
-    },
-    orderBy: { startedAt: "desc" },
-  });
+export async function listDeployments(options?: {
+  page?: number;
+  limit?: number;
+}): Promise<{
+  items: DeploymentLogItem[];
+  total: number;
+  page: number;
+  limit: number;
+  pageCount: number;
+}> {
+  const page = Math.max(1, options?.page ?? 1);
+  const limit = Math.min(250, Math.max(1, options?.limit ?? 100));
+  const skip = (page - 1) * limit;
 
-  return items.map((item) => buildDeploymentResponse(item));
+  const [total, items] = await Promise.all([
+    prisma.deploymentLog.count(),
+    prisma.deploymentLog.findMany({
+      include: {
+        campaign: true,
+        wallpaper: {
+          select: { title: true },
+        },
+      },
+      orderBy: { startedAt: "desc" },
+      skip,
+      take: limit,
+    }),
+  ]);
+
+  return {
+    items: items.map((item) => buildDeploymentResponse(item)),
+    total,
+    page,
+    limit,
+    pageCount: Math.max(1, Math.ceil(total / limit)),
+  };
 }
 
 export async function createDeploymentRecord(payload: {

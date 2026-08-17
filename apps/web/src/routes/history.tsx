@@ -18,6 +18,16 @@ import {
 import { apiGet, downloadTextFile, formatDateTime } from "@/lib/api";
 import type { ActivityLogItem, DeploymentLogItem } from "@cwcm/types";
 
+const HISTORY_PAGE_SIZE = 100;
+
+interface DeploymentHistoryResponse {
+  items: DeploymentLogItem[];
+  total: number;
+  page: number;
+  limit: number;
+  pageCount: number;
+}
+
 export const Route = createFileRoute("/history")({
   head: () => ({
     meta: [
@@ -44,13 +54,20 @@ function Page() {
   const [search, setSearch] = useState("");
   const [resultFilter, setResultFilter] = useState<"ALL" | "Success" | "Warning" | "Failed">("ALL");
   const [recentOnly, setRecentOnly] = useState(false);
+  const [page, setPage] = useState(1);
   const {
     data,
     isPending: deploymentsPending,
+    isFetching: deploymentsFetching,
     error: deploymentsError,
   } = useQuery({
-    queryKey: ["history"],
-    queryFn: () => apiGet<{ items: DeploymentLogItem[] }>("/deployments"),
+    queryKey: ["history", page, HISTORY_PAGE_SIZE],
+    queryFn: () =>
+      apiGet<DeploymentHistoryResponse>(
+        `/deployments?page=${page}&limit=${HISTORY_PAGE_SIZE}`,
+      ),
+    placeholderData: (previousData) => previousData,
+    staleTime: 30_000,
   });
   const {
     data: activityData,
@@ -128,12 +145,16 @@ function Page() {
             placeholder="Search logs..."
             className="pl-9 bg-card"
             value={search}
-            onChange={(event) => setSearch(event.target.value)}
+            onChange={(event) => {
+              setPage(1);
+              setSearch(event.target.value);
+            }}
           />
         </div>
         <Button
           variant="outline"
-          onClick={() =>
+          onClick={() => {
+            setPage(1);
             setResultFilter((current) =>
               current === "ALL"
                 ? "Success"
@@ -142,15 +163,24 @@ function Page() {
                   : current === "Warning"
                     ? "Failed"
                     : "ALL",
-            )
-          }
+            );
+          }}
         >
           Result: {resultFilter}
         </Button>
-        <Button variant="outline" onClick={() => setRecentOnly((current) => !current)}>
+        <Button
+          variant="outline"
+          onClick={() => {
+            setPage(1);
+            setRecentOnly((current) => !current);
+          }}
+        >
           Date range: {recentOnly ? "Last 7 days" : "All time"}
         </Button>
         <div className="flex-1" />
+        <div className="text-xs text-muted-foreground">
+          {data ? `Showing page ${data.page} of ${data.pageCount} (${data.total} rows)` : "Loading..."}
+        </div>
         <Button variant="outline" onClick={exportCsv}>
           Export CSV
         </Button>
@@ -207,6 +237,38 @@ function Page() {
             )}
           </TableBody>
         </Table>
+        <div className="flex items-center justify-between border-t border-border px-6 py-4 text-sm">
+          <div className="text-muted-foreground">
+            {deploymentsFetching && !deploymentsPending
+              ? "Updating history..."
+              : "Deployment history is loaded page by page to keep navigation responsive."}
+          </div>
+          <div className="flex items-center gap-3">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage((current) => Math.max(1, current - 1))}
+              disabled={page <= 1 || deploymentsPending}
+            >
+              Previous
+            </Button>
+            <span className="text-xs text-muted-foreground">
+              Page {data?.page ?? page} / {data?.pageCount ?? 1}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                setPage((current) =>
+                  data?.pageCount ? Math.min(data.pageCount, current + 1) : current + 1,
+                )
+              }
+              disabled={Boolean(!data || page >= data.pageCount || deploymentsPending)}
+            >
+              Next
+            </Button>
+          </div>
+        </div>
       </div>
 
       <div className="rounded-xl border border-border bg-card overflow-hidden">

@@ -372,6 +372,22 @@ paths:
       summary: List deployment history
       security:
         - bearerAuth: []
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+          description: 1-based page index for deployment history pagination
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 250
+            default: 100
+          description: Maximum number of deployment history rows returned per page
       responses:
         "200":
           description: Deployment log list
@@ -384,6 +400,14 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/DeploymentLog"
+                  total:
+                    type: integer
+                  page:
+                    type: integer
+                  limit:
+                    type: integer
+                  pageCount:
+                    type: integer
   /deployments/{deploymentId}:
     get:
       tags: [Deployments]

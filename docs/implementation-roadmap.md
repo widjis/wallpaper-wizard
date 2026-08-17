@@ -206,6 +206,7 @@ Replace mock data with live API integration for operator-critical workflows and 
 - queue view now supports pause/resume, remove item, and move up/down reorder controls backed by the API
 - users view now supports create, edit, and delete flows backed by protected API routes
 - history view now supports client-side search, result toggle, date-range toggle, and CSV export against deployment rows
+- deployment history API and `History & Audit` UI were paginated on 2026-08-17 so route transitions no longer block on full-log fetches
 - route audit on 2026-07-23 initially identified residual frontend gaps in Dashboard, Wallpapers, Timeline, Deployment, History, Users, and shell affordances; those UI gaps were then implemented and re-verified on the same date, with final evidence recorded in `docs/ui-ux-wiring-audit.md`
 - residual gap: role enforcement is still backend-minimal
 

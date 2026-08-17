@@ -33,8 +33,12 @@ function Page() {
   const queryClient = useQueryClient();
   const { session } = useAuth();
   const { data, isPending, error } = useQuery({
-    queryKey: ["deployments"],
-    queryFn: () => apiGet<{ items: DeploymentLogItem[] }>("/deployments"),
+    queryKey: ["deployments", "latest"],
+    queryFn: () =>
+      apiGet<{ items: DeploymentLogItem[]; total: number; page: number; limit: number; pageCount: number }>(
+        "/deployments?page=1&limit=1",
+      ),
+    staleTime: 30_000,
   });
   const settingsQuery = useQuery({
     queryKey: ["settings"],

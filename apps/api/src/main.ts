@@ -395,10 +395,15 @@ server.post("/api/queue/resume", async (request) => {
   return { state: "RUNNING" };
 });
 
-server.get("/api/deployments", async () => {
-  return {
-    items: await listDeployments(),
-  };
+server.get("/api/deployments", async (request) => {
+  const query = request.query as { page?: string; limit?: string } | undefined;
+  const parsedPage = Number(query?.page);
+  const parsedLimit = Number(query?.limit);
+
+  return listDeployments({
+    page: Number.isFinite(parsedPage) ? parsedPage : undefined,
+    limit: Number.isFinite(parsedLimit) ? parsedLimit : undefined,
+  });
 });
 
 server.post("/api/deployments/:deploymentId/verify", async (request, reply) => {
