@@ -88,7 +88,7 @@ function Page() {
     },
   });
 
-  const queueState = data?.state ?? "RUNNING";
+  const queueState = data?.state ?? null;
 
   function moveQueueItem(index: number, direction: -1 | 1) {
     if (!data?.items?.length) {
@@ -122,12 +122,16 @@ function Page() {
         <div>
           <div className="text-sm text-muted-foreground">Queue Status</div>
           <div className="flex items-center gap-2 mt-1">
-            <span className="h-2 w-2 rounded-full bg-success" />
-            <span className="font-semibold">{queueState}</span>
+            <span
+              className={`h-2 w-2 rounded-full ${queueState ? "bg-success" : "bg-muted-foreground"}`}
+            />
+            <span className="font-semibold">
+              {isPending ? "LOADING" : error ? "UNAVAILABLE" : queueState}
+            </span>
           </div>
         </div>
         <div className="flex-1" />
-        {canManage ? (
+        {canManage && queueState ? (
           <>
             <Button
               variant="outline"

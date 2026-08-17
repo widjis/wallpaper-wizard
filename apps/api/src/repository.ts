@@ -18,6 +18,7 @@ import {
   UserRole,
 } from "@prisma/client";
 import bcrypt from "bcryptjs";
+import { randomBytes } from "node:crypto";
 import { prisma } from "./prisma.js";
 import { appConfig } from "./config.js";
 
@@ -119,7 +120,7 @@ function deriveCampaignStatus(options: {
 function buildCampaignResponse(
   campaign: Prisma.CampaignGetPayload<{
     include: {
-      wallpaper: true;
+      wallpaper: { select: { title: true } };
     };
   }>,
 ): CampaignSummary {
@@ -146,7 +147,7 @@ function buildDeploymentResponse(
   item: Prisma.DeploymentLogGetPayload<{
     include: {
       campaign: true;
-      wallpaper: true;
+      wallpaper: { select: { title: true } };
     };
   }>,
   operatorOverride?: string,
@@ -381,12 +382,13 @@ export async function loginWithLocalAuth(
     throw new Error("Invalid username or password");
   }
 
-  const token = `local-${user.id}-${Date.now()}`;
+  const token = randomBytes(32).toString("base64url");
+  const expiresAt = new Date(Date.now() + 8 * 60 * 60 * 1000);
   await prisma.session.create({
     data: {
       userId: user.id,
       token,
-      expiresAt: new Date(Date.now() + 8 * 60 * 60 * 1000),
+      expiresAt,
     },
   });
 
@@ -399,6 +401,7 @@ export async function loginWithLocalAuth(
 
   return {
     token,
+    expiresAt: expiresAt.toISOString(),
     user: {
       id: user.id,
       username: user.username,
@@ -409,22 +412,33 @@ export async function loginWithLocalAuth(
   };
 }
 
-export async function getUserByToken(token: string): Promise<UserSummary | null> {
+export async function getSessionByToken(
+  token: string,
+): Promise<{ user: UserSummary; expiresAt: string } | null> {
   const session = await prisma.session.findUnique({
     where: { token },
     include: { user: true },
   });
 
-  if (!session || session.revokedAt || session.expiresAt < new Date()) {
+  if (
+    !session ||
+    session.revokedAt ||
+    session.expiresAt < new Date() ||
+    !session.user.isActive ||
+    session.user.deletedAt
+  ) {
     return null;
   }
 
   return {
-    id: session.user.id,
-    username: session.user.username,
-    role: mapRole(session.user.role),
-    isActive: session.user.isActive,
-    lastLoginAt: session.user.lastLoginAt?.toISOString() ?? null,
+    expiresAt: session.expiresAt.toISOString(),
+    user: {
+      id: session.user.id,
+      username: session.user.username,
+      role: mapRole(session.user.role),
+      isActive: session.user.isActive,
+      lastLoginAt: session.user.lastLoginAt?.toISOString() ?? null,
+    },
   };
 }
 
@@ -442,6 +456,7 @@ export async function logoutByToken(token: string): Promise<void> {
 
 export async function listUsers(): Promise<UserSummary[]> {
   const users = await prisma.user.findMany({
+    where: { deletedAt: null },
     orderBy: { username: "asc" },
   });
 
@@ -504,6 +519,10 @@ export async function updateUserRecord(payload: {
     throw new Error("User not found");
   }
 
+  if (existingUser.deletedAt) {
+    throw new Error("User account has been deleted");
+  }
+
   const user = await prisma.user.update({
     where: { id: payload.userId },
     data: {
@@ -543,30 +562,73 @@ export async function deleteUserRecord(payload: {
     throw new Error("User not found");
   }
 
-  await prisma.session.updateMany({
-    where: { userId: existingUser.id, revokedAt: null },
-    data: { revokedAt: new Date() },
-  });
+  if (existingUser.deletedAt) {
+    return;
+  }
 
-  await prisma.user.delete({
-    where: { id: existingUser.id },
-  });
+  if (existingUser.id === payload.deletedById) {
+    throw new Error("You cannot delete your own account");
+  }
 
-  await prisma.activityLog.create({
-    data: {
-      actor: payload.deletedById,
-      action: "user.deleted",
-      detail: existingUser.username,
-    },
-  });
+  if (existingUser.role === UserRole.ADMINISTRATOR && existingUser.isActive) {
+    const otherActiveAdministrators = await prisma.user.count({
+      where: {
+        id: { not: existingUser.id },
+        role: UserRole.ADMINISTRATOR,
+        isActive: true,
+        deletedAt: null,
+      },
+    });
+
+    if (otherActiveAdministrators === 0) {
+      throw new Error("The last active administrator cannot be deleted");
+    }
+  }
+
+  const deletedAt = new Date();
+
+  await prisma.$transaction([
+    prisma.session.updateMany({
+      where: { userId: existingUser.id, revokedAt: null },
+      data: { revokedAt: deletedAt },
+    }),
+    prisma.user.update({
+      where: { id: existingUser.id },
+      data: {
+        isActive: false,
+        deletedAt,
+      },
+    }),
+    prisma.activityLog.create({
+      data: {
+        actor: payload.deletedById,
+        action: "user.deleted",
+        detail: existingUser.username,
+      },
+    }),
+  ]);
 }
 
 export async function listWallpapers(): Promise<WallpaperSummary[]> {
   const settings = await getSettings();
   const wallpapers = await prisma.wallpaper.findMany({
     where: { deletedAt: null },
-    include: {
-      campaigns: true,
+    select: {
+      id: true,
+      title: true,
+      filename: true,
+      description: true,
+      tags: true,
+      resolution: true,
+      width: true,
+      height: true,
+      sizeBytes: true,
+      checksumSha256: true,
+      mimeType: true,
+      uploadedAt: true,
+      campaigns: {
+        select: { status: true },
+      },
     },
     orderBy: { uploadedAt: "desc" },
   });
@@ -701,7 +763,11 @@ export async function deleteWallpaperRecord(payload: {
 
 export async function listCampaigns(): Promise<CampaignSummary[]> {
   const campaigns = await prisma.campaign.findMany({
-    include: { wallpaper: true },
+    include: {
+      wallpaper: {
+        select: { title: true },
+      },
+    },
     orderBy: [{ startDate: "asc" }, { priority: "desc" }],
   });
 
@@ -1050,11 +1116,7 @@ export async function setQueueState(nextState: QueueState, updatedById?: string)
 export async function listQueue(): Promise<QueueItem[]> {
   const entries = await prisma.campaignQueueEntry.findMany({
     include: {
-      campaign: {
-        include: {
-          wallpaper: true,
-        },
-      },
+      campaign: true,
     },
     orderBy: { orderIndex: "asc" },
   });
@@ -1128,7 +1190,9 @@ export async function listDeployments(): Promise<DeploymentLogItem[]> {
   const items = await prisma.deploymentLog.findMany({
     include: {
       campaign: true,
-      wallpaper: true,
+      wallpaper: {
+        select: { title: true },
+      },
     },
     orderBy: { startedAt: "desc" },
   });
@@ -1325,10 +1389,13 @@ export async function updateSettingsRecord(
 }
 
 export async function buildDashboardSummary(): Promise<DashboardSummary> {
-  const [campaigns, deployments, activity, settings, queueState, schedulerRuntime] =
+  const [campaigns, deploymentCounts, activity, settings, queueState, schedulerRuntime] =
     await Promise.all([
       listCampaigns(),
-      listDeployments(),
+      prisma.deploymentLog.groupBy({
+        by: ["result"],
+        _count: { _all: true },
+      }),
       listActivityLogs(),
       getSettings(),
       getQueueState(),
@@ -1346,12 +1413,13 @@ export async function buildDashboardSummary(): Promise<DashboardSummary> {
   const currentCampaign = campaigns.find((campaign) => campaign.status === "ACTIVE") ?? null;
   const nextCampaign = campaigns.find((campaign) => campaign.status === "SCHEDULED") ?? null;
 
-  const deploymentStats = deployments.reduce(
+  const deploymentStats = deploymentCounts.reduce(
     (acc, deployment) => {
-      acc.total += 1;
-      if (deployment.result === "SUCCESS") acc.success += 1;
-      if (deployment.result === "FAILED") acc.failed += 1;
-      if (deployment.result === "WARNING") acc.warning += 1;
+      const count = deployment._count._all;
+      acc.total += count;
+      if (deployment.result === "SUCCESS") acc.success += count;
+      if (deployment.result === "FAILED") acc.failed += count;
+      if (deployment.result === "WARNING") acc.warning += count;
       return acc;
     },
     { success: 0, failed: 0, warning: 0, total: 0 },

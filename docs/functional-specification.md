@@ -23,9 +23,14 @@ Current state:
 
 - local login screen exists
 - bearer-token session state exists in the API and web client
+- the web client validates persisted sessions through `GET /api/auth/session` before treating startup authentication as ready
+- expired, revoked, unknown, and inactive-user sessions return a structured `401`; all frontend request types clear invalid local session state consistently
+- temporary API/proxy failures preserve the local session and are treated separately from authentication expiry
 - basic route protection exists in the web shell
 - role-based navigation and role-based action enforcement now exist in the main web flows
 - backend authorization remains minimal compared with full production-grade RBAC
+- deleting a portal account revokes its sessions, hides it from active user listings, and preserves historical wallpaper/campaign/settings ownership through a soft-delete tombstone
+- administrators cannot delete their own account or the last remaining active administrator
 
 ### 2. Dashboard
 
@@ -44,6 +49,8 @@ Current state:
 
 - `GET /api/dashboard/summary` is wired and provides current campaign, next campaign, scheduler status, deployment stats, recent activity, and system information including the configured default wallpaper
 - upcoming campaign cards, wallpaper preview, deployment donut, and CTA behavior now use live data or explicit empty states
+- dashboard transport failures render an explicit unavailable/retry state and are never represented as valid empty campaign or deployment data
+- dashboard aggregation and campaign/deployment/queue list queries exclude wallpaper binary blobs; image bytes are fetched only from the dedicated protected image endpoint
 
 ### 3. Wallpaper Library
 

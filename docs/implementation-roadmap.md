@@ -105,6 +105,7 @@ Implement the initial backend contracts, persistence layer, and local authentica
 - [x] implement auth and session endpoints
 - [x] implement users, wallpapers, campaigns, dashboard, history, settings, and health endpoints
 - [x] add basic bearer-token gate for API endpoints
+- [x] harden persisted-session validation and consistent client-side expiry handling
 - [x] keep `docs/openapi.yaml` synchronized with current implementation details
 
 ### Output
@@ -118,6 +119,12 @@ Implement the initial backend contracts, persistence layer, and local authentica
 - `npm run lint:api` and `npm run build:api` passed on 2026-07-23 after wiring Prisma runtime
 - local auth login endpoint exists and non-auth `/api/*` routes require bearer token
 - repository runtime now reads and writes to the external PostgreSQL instance defined in `.env`
+- session lifecycle hardening on 2026-08-01 added cryptographically random tokens, explicit expiry metadata, `GET /api/auth/session`, inactive-user rejection, structured `401` responses without exception stacks, and consistent frontend invalid-session cleanup for JSON and image requests
+- user deletion hardening on 2026-08-03 replaced FK-breaking physical deletion with transactional session revocation and a `deletedAt` tombstone, preserving wallpaper ownership and audit history while removing the account from portal listings; self-deletion and removal of the last active administrator are rejected
+- protected-image lifecycle hardening on 2026-08-01 stabilized semantic request dependencies and object-URL cleanup so rerenders no longer refetch identical image blobs or revoke URLs still being displayed
+- endpoint performance root-cause analysis on 2026-08-01 found that campaign, queue, deployment, and dashboard queries eagerly loaded PostgreSQL `Wallpaper.imageData` blobs through relations; list projections now exclude binary data, and dashboard deployment totals use a database aggregate instead of loading every deployment row
+- dashboard and queue failure states now remain distinct from valid empty data: failed dashboard requests no longer render false `No active campaign`, `Unknown`, and `0/0` values, GET requests time out explicitly after 15 seconds, and automatic retry/focus refetch no longer amplifies an unavailable API
+- `npm run lint` and `npm run build` passed on 2026-08-01 after the session lifecycle changes; lint retained seven pre-existing Fast Refresh warnings and reported no errors
 
 ## Phase 3 - Queue, Scheduler, And Deployment Engine
 
@@ -237,6 +244,7 @@ Prepare the product for operational deployment.
 - [ ] align `docker-compose.yml` with the current required runtime topology (`web`, `api`, `redis`, external PostgreSQL)
 - [x] align `docker-compose.yml` with the current required runtime topology (`proxy`, `web`, `api`, `redis`, external PostgreSQL)
 - [x] harden API and web Dockerfiles for reproducible Compose startup
+- [x] add API health-gated proxy startup and structured upstream-unavailable handling
 - [ ] define Prisma/database initialization flow for Docker deployment
 - [ ] run end-to-end `docker compose build` and `docker compose up` validation
 - [ ] verify scheduler, deployment, and authentication behavior inside Docker runtime
@@ -258,6 +266,8 @@ Prepare the product for operational deployment.
 - dashboard response baseline measured approximately `2087-2167 ms` across three authenticated runs in this workspace, which is close to but still above the PRD target of `< 2 seconds`
 - settings response baseline measured approximately `2094-2235 ms` across three authenticated runs in this workspace, which is acceptable for current MVP hardening evidence but indicates the runtime still needs optimization
 - deployment verify returns a structured deployment result and target-environment CIFS/SYSVOL publishing has been validated successfully
+- Docker configuration hardening on 2026-08-01 added an API `/health` check, health-gated proxy dependency, explicit nginx upstream timeouts, and structured `503 API_UNAVAILABLE` responses; runtime Compose validation remains pending because the available Docker CLI does not provide the Compose subcommand and no `docker-compose` executable is installed
+- production probes on 2026-08-01 returned five consecutive structured `401 AUTH_TOKEN_MISSING` responses from `/api/dashboard/summary` in `0.35-0.44s`, proving the public route and API were healthy after the reported intermittent `502`; `/api/health` was added so future monitoring can test the complete public proxy path without credentials
 - default wallpaper fallback was implemented on 2026-07-23:
   - admins can choose `defaultWallpaperId` from the Settings page
   - deployment selection now follows `active campaign -> eligible scheduled campaign -> default wallpaper`

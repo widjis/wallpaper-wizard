@@ -47,6 +47,7 @@ function Dashboard() {
   const {
     data,
     isPending: isSummaryPending,
+    refetch: refetchSummary,
     error: summaryError,
   } = useQuery({
     queryKey: ["dashboard-summary"],
@@ -116,6 +117,34 @@ function Dashboard() {
         ? campaignsQuery.error.message
         : null;
   const isLoading = isSummaryPending || campaignsQuery.isPending;
+
+  if (isSummaryPending) {
+    return (
+      <AppLayout title="Dashboard" subtitle="Overview of wallpaper campaign system">
+        <div className="rounded-xl border border-border bg-card px-6 py-10 text-sm text-muted-foreground">
+          Loading dashboard data...
+        </div>
+      </AppLayout>
+    );
+  }
+
+  if (summaryError) {
+    return (
+      <AppLayout title="Dashboard" subtitle="Overview of wallpaper campaign system">
+        <div className="rounded-xl border border-destructive/30 bg-card px-6 py-10">
+          <h2 className="text-lg font-semibold">Dashboard data is unavailable</h2>
+          <p className="mt-2 text-sm text-muted-foreground">
+            {summaryError instanceof Error
+              ? summaryError.message
+              : "The dashboard service could not be reached."}
+          </p>
+          <Button className="mt-5" onClick={() => void refetchSummary()}>
+            Try again
+          </Button>
+        </div>
+      </AppLayout>
+    );
+  }
 
   return (
     <AppLayout title="Dashboard" subtitle="Overview of wallpaper campaign system">

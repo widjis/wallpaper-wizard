@@ -21,16 +21,17 @@ This document defines the target logical database model for CWCM.
 
 ### User
 
-| Field        | Type              | Notes                                 |
-| ------------ | ----------------- | ------------------------------------- |
-| id           | UUID              | Primary key                           |
-| username     | String            | Unique login identifier               |
-| passwordHash | String            | Local authentication hash for phase 1 |
-| role         | Enum              | `ADMINISTRATOR`, `OPERATOR`, `VIEWER` |
-| isActive     | Boolean           | Soft disable flag                     |
-| createdAt    | DateTime          | Creation timestamp                    |
-| updatedAt    | DateTime          | Update timestamp                      |
-| lastLoginAt  | DateTime nullable | Last successful login                 |
+| Field        | Type              | Notes                                                         |
+| ------------ | ----------------- | ------------------------------------------------------------- |
+| id           | UUID              | Primary key                                                   |
+| username     | String            | Unique login identifier                                       |
+| passwordHash | String            | Local authentication hash for phase 1                         |
+| role         | Enum              | `ADMINISTRATOR`, `OPERATOR`, `VIEWER`                         |
+| isActive     | Boolean           | Soft disable flag                                             |
+| createdAt    | DateTime          | Creation timestamp                                            |
+| updatedAt    | DateTime          | Update timestamp                                              |
+| lastLoginAt  | DateTime nullable | Last successful login                                         |
+| deletedAt    | DateTime nullable | Portal-removal timestamp; historical FK ownership is retained |
 
 ### Wallpaper
 
@@ -139,14 +140,14 @@ Current runtime keys include:
 
 ### Session
 
-| Field     | Type              | Notes                           |
-| --------- | ----------------- | ------------------------------- |
-| id        | UUID              | Primary key                     |
-| userId    | UUID              | FK to User                      |
-| tokenId   | String            | Unique session token identifier |
-| expiresAt | DateTime          | Session expiry                  |
-| revokedAt | DateTime nullable | Revocation timestamp            |
-| createdAt | DateTime          | Creation timestamp              |
+| Field     | Type              | Notes                                        |
+| --------- | ----------------- | -------------------------------------------- |
+| id        | UUID              | Primary key                                  |
+| userId    | UUID              | FK to User                                   |
+| token     | String            | Unique cryptographically random bearer token |
+| expiresAt | DateTime          | Session expiry                               |
+| revokedAt | DateTime nullable | Revocation timestamp                         |
+| createdAt | DateTime          | Creation timestamp                           |
 
 ## Suggested Enums
 

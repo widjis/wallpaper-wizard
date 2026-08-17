@@ -5,6 +5,7 @@ const authChangeEventName = "cwcm:auth-changed";
 
 export interface AuthSession {
   token: string;
+  expiresAt: string;
   user: {
     id: string;
     username: string;
@@ -14,13 +15,30 @@ export interface AuthSession {
   };
 }
 
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+    public readonly code?: string,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
 export function getStoredSession(): AuthSession | null {
   if (typeof window === "undefined") return null;
   const raw = window.localStorage.getItem(authStorageKey);
   if (!raw) return null;
   try {
-    return JSON.parse(raw) as AuthSession;
+    const session = JSON.parse(raw) as Partial<AuthSession>;
+    if (!session.token || !session.user) {
+      window.localStorage.removeItem(authStorageKey);
+      return null;
+    }
+    return session as AuthSession;
   } catch {
+    window.localStorage.removeItem(authStorageKey);
     return null;
   }
 }
@@ -55,15 +73,26 @@ export function subscribeAuthChange(callback: () => void): () => void {
   };
 }
 
+async function throwResponseError(response: Response): Promise<never> {
+  const payload = (await response.json().catch(() => null)) as {
+    code?: string;
+    message?: string;
+  } | null;
+
+  if (response.status === 401) {
+    storeSession(null);
+  }
+
+  throw new ApiError(
+    payload?.message ?? `Request failed with status ${response.status}`,
+    response.status,
+    payload?.code,
+  );
+}
+
 async function parseResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as { message?: string } | null;
-
-    if (response.status === 401) {
-      storeSession(null);
-    }
-
-    throw new Error(payload?.message ?? `Request failed with status ${response.status}`);
+    return throwResponseError(response);
   }
 
   if (response.status === 204) {
@@ -88,9 +117,19 @@ export function resolveApiPath(pathOrUrl: string): string {
 
 export async function apiGet<T>(path: string): Promise<T> {
   const session = getStoredSession();
-  const response = await fetch(`${apiBaseUrl}${path}`, {
-    headers: session?.token ? { Authorization: `Bearer ${session.token}` } : undefined,
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${apiBaseUrl}${path}`, {
+      headers: session?.token ? { Authorization: `Bearer ${session.token}` } : undefined,
+      signal: AbortSignal.timeout(15_000),
+    });
+  } catch {
+    throw new ApiError(
+      "The application server did not respond. Please try again.",
+      0,
+      "API_UNREACHABLE",
+    );
+  }
   return parseResponse<T>(response);
 }
 
@@ -155,13 +194,18 @@ export async function apiUpload<T>(path: string, formData: FormData): Promise<T>
 
 export async function apiImageUrl(path: string): Promise<string> {
   const session = getStoredSession();
-  const response = await fetch(buildApiUrl(path), {
-    headers: session?.token ? { Authorization: `Bearer ${session.token}` } : undefined,
-  });
+  let response: Response;
+  try {
+    response = await fetch(buildApiUrl(path), {
+      headers: session?.token ? { Authorization: `Bearer ${session.token}` } : undefined,
+      signal: AbortSignal.timeout(20_000),
+    });
+  } catch {
+    throw new ApiError("Wallpaper preview is unavailable.", 0, "API_UNREACHABLE");
+  }
 
   if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as { message?: string } | null;
-    throw new Error(payload?.message ?? `Image request failed with status ${response.status}`);
+    return throwResponseError(response);
   }
 
   const blob = await response.blob();

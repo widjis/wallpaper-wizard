@@ -1,4 +1,4 @@
-import Fastify from "fastify";
+import Fastify, { type FastifyReply } from "fastify";
 import cors from "@fastify/cors";
 import multipart from "@fastify/multipart";
 import swagger from "@fastify/swagger";
@@ -6,7 +6,7 @@ import swaggerUi from "@fastify/swagger-ui";
 import { QueueState, type UserRole } from "@prisma/client";
 import { appConfig } from "./config.js";
 import { ensureSeedData } from "./prisma.js";
-import { getUserByToken } from "./repository.js";
+import { getSessionByToken } from "./repository.js";
 import {
   userCreateSchema,
   userUpdateSchema,
@@ -93,28 +93,37 @@ interface AuthenticatedRequestUser {
   lastLoginAt: string | null;
 }
 
+function authenticationError(reply: FastifyReply, code: string, message: string) {
+  return reply.status(401).send({ code, message });
+}
+
+const publicApiPaths = new Set(["/api/auth/login", "/api/health"]);
+
 server.addHook("preHandler", async (request, reply) => {
-  if (!request.url.startsWith("/api") || request.url.startsWith("/api/auth/login")) {
+  if (!request.url.startsWith("/api") || publicApiPaths.has(request.url)) {
     return;
   }
 
   const authorization = request.headers.authorization;
   if (!authorization?.startsWith("Bearer ")) {
-    reply.status(401);
-    throw new Error("Missing bearer token");
+    return authenticationError(reply, "AUTH_TOKEN_MISSING", "Authentication is required");
   }
 
   const token = authorization.replace("Bearer ", "");
-  const user = await getUserByToken(token);
-  if (!user) {
-    reply.status(401);
-    throw new Error("Invalid bearer token");
+  const session = await getSessionByToken(token);
+  if (!session) {
+    return authenticationError(reply, "SESSION_INVALID", "Your session has expired");
   }
 
-  (request as typeof request & { currentUser: AuthenticatedRequestUser }).currentUser = user;
+  (request as typeof request & { currentUser: AuthenticatedRequestUser }).currentUser =
+    session.user;
 });
 
 server.get("/health", async () => {
+  return getHealthStatus();
+});
+
+server.get("/api/health", async () => {
   return getHealthStatus();
 });
 
@@ -129,6 +138,12 @@ server.post("/api/auth/login", async (request, reply) => {
       message: error instanceof Error ? error.message : "Authentication failed",
     };
   }
+});
+
+server.get("/api/auth/session", async (request) => {
+  const authorization = request.headers.authorization!;
+  const session = await getSessionByToken(authorization.replace("Bearer ", ""));
+  return session!;
 });
 
 server.post("/api/auth/logout", async (request, reply) => {
@@ -497,6 +512,7 @@ server.delete("/api/users/:userId", async (request, reply) => {
   } catch (error) {
     reply.status(400);
     return {
+      code: "USER_DELETE_REJECTED",
       message: error instanceof Error ? error.message : "User delete failed",
     };
   }
