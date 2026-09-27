@@ -20,6 +20,7 @@ Implemented baseline:
 - `docker/api.Dockerfile`
 - `docker/web.Dockerfile`
 - `docker/nginx.conf` reverse-proxy routing for `/` and `/api`
+- API requests allow up to 65 MiB at the proxy (`client_max_body_size 65m`), leaving multipart overhead above the API's existing 64 MiB per-file limit. This prevents Nginx's default 1 MiB body limit from rejecting wallpaper uploads before they reach the API.
 - the API container exposes a Compose healthcheck on `/health`; the proxy waits for API health before startup
 - external monitoring should call unauthenticated `/api/health`, which traverses the public reverse-proxy route to the API; container-local checks continue to use `/health`
 - upstream API connection failures are normalized by nginx to a structured `503 API_UNAVAILABLE` response, distinct from authentication `401` responses
@@ -33,6 +34,8 @@ Current limitation:
 - the Compose reverse-proxy baseline is now the public entrypoint, so API and web are intended to stay internal-only on the Docker network
 
 ## Container Access Model
+
+After updating `docker/nginx.conf` on the deployment host, run `docker compose exec proxy nginx -t`. If validation succeeds, run `docker compose exec proxy nginx -s reload`, then retry the upload through the public application URL. The configuration is bind-mounted; no image rebuild is required for this change.
 
 - public browser entrypoint: `proxy` on host port `9105`
 - frontend container: internal-only `web:3001`

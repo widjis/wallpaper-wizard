@@ -246,6 +246,8 @@ Prepare the product for operational deployment.
 - [x] align `docker-compose.yml` with the current required runtime topology (`proxy`, `web`, `api`, `redis`, external PostgreSQL)
 - [x] harden API and web Dockerfiles for reproducible Compose startup
 - [x] add API health-gated proxy startup and structured upstream-unavailable handling
+- [x] configure the API proxy body limit at 65 MiB to accommodate the existing 64 MiB upload limit plus multipart overhead
+- [ ] validate the upload proxy limit with `nginx -t`, reload, and a wallpaper upload on the deployment host
 - [ ] define Prisma/database initialization flow for Docker deployment
 - [ ] run end-to-end `docker compose build` and `docker compose up` validation
 - [ ] verify scheduler, deployment, and authentication behavior inside Docker runtime
@@ -258,6 +260,7 @@ Prepare the product for operational deployment.
 ### Challenge / Verification
 
 - `npm install`, `npm run lint:api`, `npm run build:api`, `npm run lint:web`, `npm run build:web`, and `GetDiagnostics` were rerun during the latest work item
+- Upload proxy fix (2026-09-27): configuration review confirms `client_max_body_size 65m` is scoped to `/api/`; Compose bind-mounts this file into the proxy. The supplied 2,005,386-byte PNG passed the existing normalization function locally (1920x1080 JPEG, 358,027 bytes). Runtime Nginx validation and upload acceptance remain pending: local Docker daemon is unavailable and the Docker CLI lacks Compose. `docs/openapi.yaml` was reviewed; API routes, payloads, and the existing per-file limit are unchanged.
 - `npm run db:prepare` and `npm run prisma:push` passed against the external PostgreSQL database on 2026-07-23 after credential resolution was corrected
 - `node scripts/backfill-wallpaper-blobs.mjs` and `node scripts/finalize-wallpaper-db-only.mjs` passed, proving all wallpaper rows were promoted to blob-backed storage before removing the transitional `storagePath` column
 - unauthenticated access to `/api/campaigns` returned `401`, proving the bearer gate is active for protected API routes
