@@ -41,6 +41,8 @@ enum QueueState {
 model User {
   id           String        @id @default(uuid())
   username     String        @unique
+  authSource   String        @default("LOCAL")
+  adObjectId   String?       @unique
   passwordHash String
   role         UserRole
   isActive     Boolean       @default(true)

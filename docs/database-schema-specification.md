@@ -29,7 +29,7 @@ This document defines the target logical database model for CWCM.
 | role         | Enum              | `ADMINISTRATOR`, `OPERATOR`, `VIEWER`                         |
 | isActive     | Boolean           | Soft disable flag                                             |
 | createdAt    | DateTime          | Creation timestamp                                            |
-| updatedAt    | DateTime          | Update timestamp                                              |
+| updatedAt    | DateTime          | Authentication revision: strictly advances on access saves; login preserves it |
 | lastLoginAt  | DateTime nullable | Last successful login                                         |
 | deletedAt    | DateTime nullable | Portal-removal timestamp; historical FK ownership is retained |
 
@@ -217,3 +217,11 @@ Before implementation:
 - wallpaper storage is now fully database-only
 - filesystem source fallback has been removed from the target model
 - deployment publishing reads wallpaper bytes from PostgreSQL blob data
+
+## Wallpaper Library workflow extension (2026-09-27)
+
+No schema migration. Existing Wallpaper title/description, uploadedBy relation and campaigns relation support the new detail/edit workflow. Existing SystemSetting defaultWallpaperId stores fallback selection. ActivityLog records wallpaper.updated and wallpaper.default_changed with the acting user ID. Preview normalization creates no records. Deletion remains soft deletion; the dedicated default-selection and deletion paths use serializable transactions against each other. This does not yet serialize legacy campaign/settings writers: their validation-to-write races and duplicate/activate deleted-wallpaper checks remain Phase 5 hardening work.
+
+## AD account identity — 2026-09-27
+
+User.authSource defaults to LOCAL; AD records pin the directory objectGUID (base64) in unique nullable User.adObjectId. AD passwords are never persisted: passwordHash contains a random unused bcrypt value. Migration is additive: `prisma/changes/20260927-ad-login.sql`. Existing accounts are not converted automatically. Users mutations record source in audit detail and revoke sessions atomically.

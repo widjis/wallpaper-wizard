@@ -84,7 +84,10 @@ async function throwResponseError(response: Response): Promise<never> {
   }
 
   throw new ApiError(
-    payload?.message ?? `Request failed with status ${response.status}`,
+    payload?.message ??
+      (response.status === 413
+        ? "Upload rejected: the file exceeds a server upload limit. Try a smaller file or ask an administrator to check the proxy limit."
+        : `Request failed with status ${response.status}`),
     response.status,
     payload?.code,
   );
@@ -252,4 +255,16 @@ export function formatBytes(bytes: number): string {
     return `${Math.round(bytes / 1024)} KB`;
   }
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+export async function apiUploadPreview(formData: FormData): Promise<string> {
+  const session = getStoredSession();
+  const response = await fetch(`${apiBaseUrl}/wallpapers/preview`, {
+    method: "POST",
+    headers: session?.token ? { Authorization: `Bearer ${session.token}` } : undefined,
+    body: formData,
+    signal: AbortSignal.timeout(60_000),
+  });
+  if (!response.ok) return throwResponseError(response);
+  return URL.createObjectURL(await response.blob());
 }

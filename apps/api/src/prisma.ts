@@ -81,11 +81,6 @@ async function buildSeedWallpaperPayload(sourceAsset: string, filename: string) 
 export async function ensureSeedData() {
   await ensureSeedWallpaperFiles();
   const adminPasswordHash = await bcrypt.hash(appConfig.AUTH_SEED_ADMIN_PASSWORD, 10);
-  const operatorPasswordHash = await bcrypt.hash(
-    appConfig.LDAP_PASS ?? appConfig.AUTH_SEED_ADMIN_PASSWORD,
-    10,
-  );
-
   const admin = await prisma.user.upsert({
     where: { username: appConfig.AUTH_SEED_ADMIN_USERNAME },
     update: {},
@@ -96,25 +91,9 @@ export async function ensureSeedData() {
     },
   });
 
-  const operator = await prisma.user.upsert({
-    where: { username: appConfig.LDAP_USER ?? "Rian Pratama" },
-    update: {},
-    create: {
-      username: appConfig.LDAP_USER ?? "Rian Pratama",
-      passwordHash: operatorPasswordHash,
-      role: UserRole.OPERATOR,
-    },
-  });
-
-  const viewer = await prisma.user.upsert({
-    where: { username: "Dewi Lestari" },
-    update: {},
-    create: {
-      username: "Dewi Lestari",
-      passwordHash: adminPasswordHash,
-      role: UserRole.VIEWER,
-    },
-  });
+  // LDAP_USER/LDAP_PASS are not provisioning instructions. Accounts are assigned in Users.
+  const operator = admin;
+  const viewer = admin;
 
   const settingsEntries = Object.entries(defaultSettings);
   await Promise.all(

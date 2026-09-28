@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, Search, Calendar } from "lucide-react";
 import { toast } from "sonner";
@@ -32,6 +32,12 @@ import {
 import type { CampaignSummary, WallpaperSummary } from "@cwcm/types";
 
 export const Route = createFileRoute("/campaigns")({
+  validateSearch: (
+    search: Record<string, unknown>,
+  ): { wallpaperId?: string; campaignId?: string } => ({
+    wallpaperId: typeof search.wallpaperId === "string" ? search.wallpaperId : undefined,
+    campaignId: typeof search.campaignId === "string" ? search.campaignId : undefined,
+  }),
   head: () => ({
     meta: [
       { title: "Campaigns — CWCM" },
@@ -151,6 +157,9 @@ function buildTimeZoneOptions(preferredTimeZone: string) {
 
 function Page() {
   const queryClient = useQueryClient();
+  const routeSearch = Route.useSearch();
+  const navigate = useNavigate();
+  const [selectionError, setSelectionError] = useState("");
   const { isAuthenticated, session } = useAuth();
   const browserTimeZone = useMemo(() => getBrowserTimeZone(), []);
   const timeZoneOptions = useMemo(() => buildTimeZoneOptions(browserTimeZone), [browserTimeZone]);
@@ -332,6 +341,44 @@ function Page() {
   const wallpaperOptions = wallpaperQuery.data?.items ?? [];
   const hasWallpapers = wallpaperOptions.length > 0;
   const canManage = canManageCampaigns(session?.user.role);
+  useEffect(() => {
+    if (routeSearch.wallpaperId && wallpaperQuery.data && canManage) {
+      const wallpaper = wallpaperQuery.data.items.find((w) => w.id === routeSearch.wallpaperId);
+      if (wallpaper) {
+        setEditingCampaignId(null);
+        setForm({
+          name: wallpaper.title,
+          wallpaperId: wallpaper.id,
+          description: "",
+          startDate: "",
+          endDate: "",
+          timeZone: browserTimeZone,
+          priority: "5",
+        });
+        setShowForm(true);
+        setSelectionError("");
+      } else
+        setSelectionError(
+          "The selected wallpaper is no longer available. Choose another wallpaper from the Library.",
+        );
+      void navigate({ to: "/campaigns", search: {}, replace: true });
+    }
+    if (routeSearch.campaignId && data) {
+      const campaign = data.items.find((c) => c.id === routeSearch.campaignId);
+      if (campaign) setSearch(campaign.name);
+      else setSelectionError("This campaign is no longer available.");
+      void navigate({ to: "/campaigns", search: {}, replace: true });
+    }
+  }, [
+    routeSearch.wallpaperId,
+    routeSearch.campaignId,
+    wallpaperQuery.data,
+    data,
+    canManage,
+    browserTimeZone,
+    navigate,
+  ]);
+
   const canSubmit =
     form.name.trim().length > 0 &&
     form.wallpaperId.trim().length > 0 &&
@@ -340,6 +387,11 @@ function Page() {
 
   return (
     <AppLayout title="Campaigns" subtitle="Plan and manage every wallpaper campaign">
+      {selectionError && (
+        <p role="alert" className="mb-4 text-destructive">
+          {selectionError}
+        </p>
+      )}
       <div className="flex items-center gap-3 mb-6">
         <div className="relative flex-1 max-w-md">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />

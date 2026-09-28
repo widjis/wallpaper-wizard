@@ -32,12 +32,12 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                additionalProperties: true
+                $ref: "#/components/schemas/HealthStatus"
   /auth/login:
     post:
       tags: [Auth]
-      summary: Login with username and password
+      summary: Sign in with an assigned local or Active Directory account
+      description: Case-insensitive exact assigned username (AD sAMAccountName or UPN as assigned). Active non-deleted portal assignment required before checking credentials. AD uses TLS (certificate verification defaults on; explicit LDAP_TLS_REJECT_UNAUTHORIZED=false deployment override) and pinned objectGUID; local accounts use bcrypt. No account provisioning, group-derived roles or local fallback for AD failures. Account revision validation and session issuance are atomic against portal access updates/revocation; a changed revision or serialization conflict returns generic 401 without retrying previously verified credentials.
       requestBody:
         required: true
         content:
@@ -45,14 +45,16 @@ paths:
             schema:
               $ref: "#/components/schemas/LoginRequest"
       responses:
+        "401":
+          description: Generic invalid credentials, unassigned, disabled, deleted or changed identity; no session issued
+        "503":
+          description: Authentication backend unavailable (includes LDAP/TLS/service-bind failures); no local fallback
         "200":
           description: Authenticated session
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/AuthSession"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
   /auth/session:
     get:
       tags: [Auth]
@@ -94,6 +96,7 @@ paths:
     get:
       tags: [Wallpapers]
       summary: List wallpapers
+      description: Operator or Administrator only; includes uploader and all campaign references.
       security:
         - bearerAuth: []
       responses:
@@ -111,6 +114,46 @@ paths:
     post:
       tags: [Wallpapers]
       summary: Upload wallpaper
+      description: Operator or Administrator only. Accepts one JPG/PNG up to 64 MiB; normalizes to 1920x1080 JPG. Saving does not publish or schedule. Uses the same deterministic conversion as the preview endpoint.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                title:
+                  type: string
+                  minLength: 1
+                  maxLength: 200
+                  description: Optional for legacy clients; defaults to the normalized filename without extension.
+                description:
+                  type: string
+                  maxLength: 2000
+      responses:
+        "400":
+          description: Invalid image or metadata
+        "403":
+          description: Role cannot manage wallpapers
+        "413":
+          description: File exceeds the 64 MiB API limit or request exceeds the proxy limit
+        "201":
+          description: Wallpaper created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Wallpaper"
+  /wallpapers/preview:
+    post:
+      tags: [Wallpapers]
+      summary: Preview normalized wallpaper without persistence
+      description: Operator or Administrator only. One non-empty JPG/PNG, maximum 64 MiB. Returns the same normalized image that a subsequent upload of that file produces. No database writes. Cache-Control is no-store.
       security:
         - bearerAuth: []
       requestBody:
@@ -125,33 +168,115 @@ paths:
                   type: string
                   format: binary
       responses:
-        "201":
-          description: Wallpaper created
+        "200":
+          description: Normalized 1920x1080 JPEG
           content:
-            application/json:
+            image/jpeg:
               schema:
-                $ref: "#/components/schemas/Wallpaper"
+                type: string
+                format: binary
+        "400":
+          description: Missing, empty, unsupported or corrupt image
+        "403":
+          description: Role cannot manage wallpapers
+        "413":
+          description: Upload too large
   /wallpapers/{wallpaperId}:
     get:
       tags: [Wallpapers]
-      summary: Get wallpaper detail
+      summary: Get wallpaper detail including uploader and campaign references
+      security:
+        - bearerAuth: []
       parameters:
         - $ref: "#/components/parameters/WallpaperId"
       responses:
         "200":
-          description: Wallpaper detail
+          description: Wallpaper detail (Operator or Administrator)
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Wallpaper"
+        "403":
+          description: Role cannot access the Library
+        "404":
+          description: Wallpaper not found
+    patch:
+      tags: [Wallpapers]
+      summary: Edit wallpaper title and description without changing image bytes
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/WallpaperId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [title]
+              properties:
+                title:
+                  type: string
+                  minLength: 1
+                  maxLength: 200
+                description:
+                  type: string
+                  nullable: true
+                  maxLength: 2000
+      responses:
+        "200":
+          description: Updated wallpaper; audit event recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Wallpaper"
+        "400":
+          description: Invalid metadata (whitespace-only titles rejected)
+        "403":
+          description: Role cannot manage wallpapers
+        "404":
+          description: Wallpaper not found
     delete:
       tags: [Wallpapers]
-      summary: Delete wallpaper
+      summary: Delete an eligible wallpaper
+      description: Operator or Administrator only. Default wallpapers and DRAFT, SCHEDULED or ACTIVE campaign references block deletion. Soft-deletes and preserves historical references.
+      security:
+        - bearerAuth: []
       parameters:
         - $ref: "#/components/parameters/WallpaperId"
       responses:
         "204":
           description: Wallpaper deleted
+        "400":
+          description: Missing wallpaper, protected default, campaign reference, or concurrent mutation conflict
+        "403":
+          description: Role cannot manage wallpapers
+  /wallpapers/{wallpaperId}/default:
+    put:
+      tags: [Wallpapers]
+      summary: Choose default wallpaper (Administrator only)
+      description: Changes only defaultWallpaperId and records wallpaper.default_changed. Does not interrupt an active campaign or publish immediately. Unknown/deleted targets are rejected.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/WallpaperId"
+      responses:
+        "200":
+          description: Default wallpaper selected
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [defaultWallpaperId]
+                properties:
+                  defaultWallpaperId:
+                    type: string
+                    format: uuid
+        "403":
+          description: Administrator role required
+        "404":
+          description: Wallpaper not found
   /wallpapers/{wallpaperId}/image:
     get:
       tags: [Wallpapers]
@@ -202,6 +327,10 @@ paths:
             schema:
               $ref: "#/components/schemas/CreateCampaignRequest"
       responses:
+        "400":
+          description: Invalid campaign, schedule conflict, or missing/deleted wallpaper
+        "403":
+          description: Operator or Administrator role required
         "201":
           description: Campaign created
           content:
@@ -222,6 +351,8 @@ paths:
               schema:
                 $ref: "#/components/schemas/Campaign"
     patch:
+      security:
+        - bearerAuth: []
       tags: [Campaigns]
       summary: Update campaign
       parameters:
@@ -233,6 +364,10 @@ paths:
             schema:
               $ref: "#/components/schemas/UpdateCampaignRequest"
       responses:
+        "400":
+          description: Invalid campaign, schedule conflict, or missing/deleted wallpaper
+        "403":
+          description: Operator or Administrator role required
         "200":
           description: Campaign updated
           content:
@@ -240,11 +375,15 @@ paths:
               schema:
                 $ref: "#/components/schemas/Campaign"
     delete:
+      security:
+        - bearerAuth: []
       tags: [Campaigns]
       summary: Delete campaign
       parameters:
         - $ref: "#/components/parameters/CampaignId"
       responses:
+        "403":
+          description: Operator or Administrator role required
         "204":
           description: Campaign deleted
   /campaigns/{campaignId}/activate:
@@ -256,6 +395,8 @@ paths:
       parameters:
         - $ref: "#/components/parameters/CampaignId"
       responses:
+        "403":
+          description: Operator or Administrator role required
         "200":
           description: Campaign activated
           content:
@@ -271,6 +412,8 @@ paths:
       parameters:
         - $ref: "#/components/parameters/CampaignId"
       responses:
+        "403":
+          description: Operator or Administrator role required
         "200":
           description: Campaign cancelled
           content:
@@ -286,6 +429,8 @@ paths:
       parameters:
         - $ref: "#/components/parameters/CampaignId"
       responses:
+        "403":
+          description: Operator or Administrator role required
         "201":
           description: Campaign duplicated
           content:
@@ -488,23 +633,14 @@ paths:
             schema:
               $ref: "#/components/schemas/UpdateSystemSettingsRequest"
       responses:
+        "403":
+          description: Administrator role required
         "200":
           description: Updated settings
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/SystemSettings"
-  /health:
-    get:
-      tags: [Health]
-      summary: Get system health
-      responses:
-        "200":
-          description: Health status
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/HealthStatus"
   /users:
     get:
       tags: [Auth]
@@ -512,6 +648,8 @@ paths:
       security:
         - bearerAuth: []
       responses:
+        "403":
+          description: Administrator role required
         "200":
           description: User list
           content:
@@ -535,6 +673,10 @@ paths:
             schema:
               $ref: "#/components/schemas/CreateUserRequest"
       responses:
+        "503":
+          description: AD cannot be reached or trusted while validating a new/changed AD identity
+        "403":
+          description: Administrator role required
         "201":
           description: User created
           content:
@@ -556,6 +698,10 @@ paths:
             schema:
               $ref: "#/components/schemas/UpdateUserRequest"
       responses:
+        "503":
+          description: AD cannot be reached or trusted while validating a new/changed AD identity
+        "403":
+          description: Administrator role required
         "200":
           description: User updated
           content:
@@ -570,6 +716,8 @@ paths:
       parameters:
         - $ref: "#/components/parameters/UserId"
       responses:
+        "403":
+          description: Administrator role required
         "204":
           description: User hidden from the portal, sessions revoked, and audit references preserved
         "400":
@@ -690,6 +838,10 @@ components:
     User:
       type: object
       properties:
+        authSource:
+          type: string
+          enum: [LOCAL, AD]
+          description: Existing accounts are LOCAL. AD assignments are verified and pinned to objectGUID; AD passwords are never stored.
         id:
           type: string
           format: uuid
@@ -706,12 +858,18 @@ components:
           nullable: true
     CreateUserRequest:
       type: object
-      required: [username, password, role, isActive]
+      required: [username, role, isActive]
       properties:
+        authSource:
+          type: string
+          enum: [LOCAL, AD]
+          description: Existing accounts are LOCAL. AD assignments are verified and pinned to objectGUID; AD passwords are never stored.
         username:
           type: string
         password:
           type: string
+          minLength: 6
+          description: Required for local creation or switching AD to LOCAL. Omit for AD. Blank optional password must be omitted.
         role:
           type: string
           enum: [ADMINISTRATOR, OPERATOR, VIEWER]
@@ -721,10 +879,16 @@ components:
       type: object
       required: [username, role, isActive]
       properties:
+        authSource:
+          type: string
+          enum: [LOCAL, AD]
+          description: Existing accounts are LOCAL. AD assignments are verified and pinned to objectGUID; AD passwords are never stored.
         username:
           type: string
         password:
           type: string
+          minLength: 6
+          description: Required for local creation or switching AD to LOCAL. Omit for AD. Blank optional password must be omitted.
         role:
           type: string
           enum: [ADMINISTRATOR, OPERATOR, VIEWER]
@@ -766,6 +930,34 @@ components:
           format: date-time
         isDefault:
           type: boolean
+        uploadedBy:
+          type: string
+          description: Uploader username, included in list/detail responses
+        usageStatus:
+          type: string
+          enum: [IN_USE, SCHEDULED, DRAFT]
+          description: Legacy compatibility field; use campaigns for independent usage badges.
+        campaigns:
+          type: array
+          description: All associated campaigns, including past use; included in list/detail responses
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              name:
+                type: string
+              status:
+                type: string
+                enum: [DRAFT, SCHEDULED, ACTIVE, COMPLETED, CANCELLED]
+              startDate:
+                type: string
+                format: date-time
+                nullable: true
+              endDate:
+                type: string
+                format: date-time
+                nullable: true
     Campaign:
       type: object
       properties:

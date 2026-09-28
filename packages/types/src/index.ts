@@ -10,7 +10,10 @@ export type TriggerSource = "SCHEDULER" | "MANUAL" | "RETRY";
 
 export type DeploymentSourceType = "CAMPAIGN" | "DEFAULT_WALLPAPER";
 
+export type AuthSource = "LOCAL" | "AD";
+
 export interface UserSummary {
+  authSource?: AuthSource;
   id: string;
   username: string;
   role: UserRole;
@@ -19,6 +22,7 @@ export interface UserSummary {
 }
 
 export interface UserMutationPayload {
+  authSource?: AuthSource;
   username: string;
   password?: string;
   role: UserRole;
@@ -39,6 +43,8 @@ export interface WallpaperSummary {
   mimeType: string;
   imageUrl: string;
   uploadedAt: string;
+  uploadedBy?: string;
+  campaigns?: Pick<CampaignSummary, "id" | "name" | "status" | "startDate" | "endDate">[];
   usageStatus: "IN_USE" | "SCHEDULED" | "DRAFT";
   isDefault: boolean;
 }

@@ -63,9 +63,7 @@ function Page() {
   } = useQuery({
     queryKey: ["history", page, HISTORY_PAGE_SIZE],
     queryFn: () =>
-      apiGet<DeploymentHistoryResponse>(
-        `/deployments?page=${page}&limit=${HISTORY_PAGE_SIZE}`,
-      ),
+      apiGet<DeploymentHistoryResponse>(`/deployments?page=${page}&limit=${HISTORY_PAGE_SIZE}`),
     placeholderData: (previousData) => previousData,
     staleTime: 30_000,
   });
@@ -179,7 +177,9 @@ function Page() {
         </Button>
         <div className="flex-1" />
         <div className="text-xs text-muted-foreground">
-          {data ? `Showing page ${data.page} of ${data.pageCount} (${data.total} rows)` : "Loading..."}
+          {data
+            ? `Showing page ${data.page} of ${data.pageCount} (${data.total} rows)`
+            : "Loading..."}
         </div>
         <Button variant="outline" onClick={exportCsv}>
           Export CSV

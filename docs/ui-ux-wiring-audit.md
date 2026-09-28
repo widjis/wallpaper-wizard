@@ -108,3 +108,7 @@ Resolution update: 2026-07-23
 1. Preserve route-level RBAC consistency as new modules are added.
 2. Re-run browser verification whenever deployment, auth, or navigation behavior changes.
 3. Keep `docs/openapi.yaml` synchronized when deployment or campaign response shapes change again.
+
+## Wallpaper Library update — 2026-09-27
+
+Library cards and details now expose campaign creation with selected wallpaper, Administrator default choice, metadata editing, download and guarded deletion. Upload previews actual server-normalized bytes before saving. Campaign usage/uploader data is live API metadata. Search/filter/sort and preview recovery are wired. Contract: `../UX-CONTRACT.md`; isolated verification and target-host limitations: `wallpaper-library-verification.md`.

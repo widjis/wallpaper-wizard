@@ -6,6 +6,7 @@ import swaggerUi from "@fastify/swagger-ui";
 import { QueueState, type UserRole } from "@prisma/client";
 import { appConfig } from "./config.js";
 import { ensureSeedData } from "./prisma.js";
+import { DirectoryUnavailable, InvalidLogin } from "./directory.js";
 import { getSessionByToken } from "./repository.js";
 import {
   userCreateSchema,
@@ -22,24 +23,20 @@ import {
   cancelCampaignRecord,
   createCampaignRecord,
   createUserRecord,
-  deleteWallpaperRecord,
   deleteCampaignRecord,
   deleteUserRecord,
   duplicateCampaignRecord,
-  createWallpaperRecord,
   finalizeDeploymentRecord,
   getDeploymentDetail,
   getHealthStatus,
   getQueueState,
   getSettings,
-  getWallpaperBinary,
   listActivityLogs,
   listCampaigns,
   listDeployments,
   listQueue,
   listUsers,
-  listWallpapers,
-  loginWithLocalAuth,
+  loginWithAssignedAuth,
   logoutByToken,
   removeQueueItemRecord,
   reorderQueueItems,
@@ -49,7 +46,7 @@ import {
   updateUserRecord,
 } from "./repository.js";
 import { publishWallpaperToSysvol } from "./smb.js";
-import { normalizeWallpaperImage } from "./services.js";
+import { registerWallpaperRoutes } from "./wallpaper-routes.js";
 import { runManualDeploymentNow, runSchedulerCycle, startRuntimeScheduler } from "./scheduler.js";
 
 const server = Fastify({
@@ -117,6 +114,30 @@ server.addHook("preHandler", async (request, reply) => {
 
   (request as typeof request & { currentUser: AuthenticatedRequestUser }).currentUser =
     session.user;
+
+  const path = request.url.split("?")[0];
+  if (
+    (path === "/api/users" || path.startsWith("/api/users/")) &&
+    session.user.role !== "ADMINISTRATOR"
+  ) {
+    return reply.status(403).send({ message: "Only an Administrator can manage user access." });
+  }
+  if (
+    path === "/api/settings" &&
+    request.method !== "GET" &&
+    session.user.role !== "ADMINISTRATOR"
+  ) {
+    return reply.status(403).send({ message: "Only an Administrator can change settings." });
+  }
+  if (
+    path.startsWith("/api/campaigns") &&
+    request.method !== "GET" &&
+    session.user.role === "VIEWER"
+  ) {
+    return reply
+      .status(403)
+      .send({ message: "Campaign changes require Operator or Administrator access." });
+  }
 });
 
 server.get("/health", async () => {
@@ -128,15 +149,24 @@ server.get("/api/health", async () => {
 });
 
 server.post("/api/auth/login", async (request, reply) => {
-  const payload = loginSchema.parse(request.body);
+  const parsed = loginSchema.safeParse(request.body);
+  if (!parsed.success)
+    return reply.status(401).send({
+      code: "INVALID_CREDENTIALS",
+      message: "Invalid username or password, or access has not been assigned.",
+    });
+  const payload = parsed.data;
   try {
-    const session = await loginWithLocalAuth(payload.username, payload.password);
+    const session = await loginWithAssignedAuth(payload.username, payload.password);
     return session;
   } catch (error) {
-    reply.status(401);
-    return {
-      message: error instanceof Error ? error.message : "Authentication failed",
-    };
+    const unavailable = error instanceof DirectoryUnavailable || !(error instanceof InvalidLogin);
+    return reply.status(unavailable ? 503 : 401).send({
+      code: unavailable ? "AUTH_UNAVAILABLE" : "INVALID_CREDENTIALS",
+      message: unavailable
+        ? "Sign-in is temporarily unavailable. Please try again later."
+        : "Invalid username or password, or access has not been assigned.",
+    });
   }
 });
 
@@ -158,83 +188,7 @@ server.get("/api/dashboard/summary", async () => {
   return buildDashboardSummary();
 });
 
-server.get("/api/wallpapers", async () => {
-  return {
-    items: await listWallpapers(),
-  };
-});
-
-server.post("/api/wallpapers", async (request, reply) => {
-  const uploaded = await request.file();
-  if (!uploaded) {
-    reply.status(400);
-    return { message: "Wallpaper file is required" };
-  }
-
-  const chunks: Buffer[] = [];
-  for await (const chunk of uploaded.file) {
-    chunks.push(chunk);
-  }
-  if ((uploaded.file as unknown as { truncated?: boolean }).truncated) {
-    reply.status(413);
-    return { message: "Upload exceeded server file size limit" };
-  }
-
-  const normalized = await normalizeWallpaperImage(Buffer.concat(chunks), uploaded.filename);
-
-  const currentUser = (request as typeof request & { currentUser: AuthenticatedRequestUser })
-    .currentUser;
-
-  const wallpaper = await createWallpaperRecord({
-    title: normalized.filename.replace(/\.[^.]+$/, ""),
-    filename: normalized.filename,
-    mimeType: normalized.mimeType,
-    imageData: normalized.buffer,
-    width: normalized.width,
-    height: normalized.height,
-    resolution: normalized.resolution,
-    sizeBytes: normalized.sizeBytes,
-    checksumSha256: normalized.checksumSha256,
-    uploadedById: currentUser.id,
-  });
-
-  reply.status(201);
-  return wallpaper;
-});
-
-server.get("/api/wallpapers/:wallpaperId/image", async (request, reply) => {
-  const wallpaper = await getWallpaperBinary(
-    (request.params as { wallpaperId: string }).wallpaperId,
-  );
-  if (!wallpaper) {
-    reply.status(404);
-    return { message: "Wallpaper not found" };
-  }
-
-  reply.header("Content-Type", wallpaper.mimeType);
-  reply.header("Content-Length", String(wallpaper.sizeBytes));
-  reply.header("ETag", wallpaper.checksumSha256);
-  reply.header("Cache-Control", "public, max-age=300");
-  return reply.send(Buffer.from(wallpaper.imageData));
-});
-
-server.delete("/api/wallpapers/:wallpaperId", async (request, reply) => {
-  try {
-    const currentUser = (request as typeof request & { currentUser: AuthenticatedRequestUser })
-      .currentUser;
-    await deleteWallpaperRecord({
-      wallpaperId: (request.params as { wallpaperId: string }).wallpaperId,
-      deletedById: currentUser.id,
-    });
-    reply.status(204);
-    return;
-  } catch (error) {
-    reply.status(400);
-    return {
-      message: error instanceof Error ? error.message : "Wallpaper delete failed",
-    };
-  }
-});
+await server.register(async (scope) => registerWallpaperRoutes(scope));
 
 server.get("/api/campaigns", async () => {
   return {
@@ -466,7 +420,13 @@ server.get("/api/users", async () => {
 });
 
 server.post("/api/users", async (request, reply) => {
-  const payload = userCreateSchema.parse(request.body);
+  const parsed = userCreateSchema.safeParse(request.body);
+  if (!parsed.success)
+    return reply.status(400).send({
+      message:
+        "Check username, authentication source, role, status, and local password (minimum 6 characters).",
+    });
+  const payload = parsed.data;
   try {
     const currentUser = (request as typeof request & { currentUser: AuthenticatedRequestUser })
       .currentUser;
@@ -478,15 +438,24 @@ server.post("/api/users", async (request, reply) => {
     reply.status(201);
     return user;
   } catch (error) {
-    reply.status(400);
+    reply.status(error instanceof DirectoryUnavailable ? 503 : 400);
     return {
-      message: error instanceof Error ? error.message : "User creation failed",
+      message:
+        error instanceof DirectoryUnavailable || error instanceof InvalidLogin
+          ? error.message
+          : "User could not be created. Check the account details or existing assignment.",
     };
   }
 });
 
 server.patch("/api/users/:userId", async (request, reply) => {
-  const payload = userUpdateSchema.parse(request.body);
+  const parsed = userUpdateSchema.safeParse(request.body);
+  if (!parsed.success)
+    return reply.status(400).send({
+      message:
+        "Check username, authentication source, role, status, and local password (minimum 6 characters).",
+    });
+  const payload = parsed.data;
   try {
     const currentUser = (request as typeof request & { currentUser: AuthenticatedRequestUser })
       .currentUser;
@@ -497,9 +466,12 @@ server.patch("/api/users/:userId", async (request, reply) => {
       updatedById: currentUser.id,
     });
   } catch (error) {
-    reply.status(400);
+    reply.status(error instanceof DirectoryUnavailable ? 503 : 400);
     return {
-      message: error instanceof Error ? error.message : "User update failed",
+      message:
+        error instanceof Error && !(error as { code?: string }).code
+          ? error.message
+          : "User could not be updated. Check the account details or existing assignment.",
     };
   }
 });

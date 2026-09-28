@@ -90,6 +90,17 @@ Examples of UI-editable settings:
 
 ## Known Challenges
 
+### Publication review follow-up (2026-09-28)
+
+The authentication/session race fix is independently sound on static inspection and passes real PostgreSQL concurrency tests. Broader review also recorded inherited issues; source comparison against `a2be381804241a42b5ff94935e23e3f0a9323f43` confirms these operational paths predate this change:
+
+- Queue mutations, deployment force/verify and scheduler execution still need complete server-side Viewer-denial checks. The new Users/settings/campaign/Library checks do not claim complete API RBAC.
+- Legacy campaign create/update and settings-default writers validate outside their final write transaction. They can reference a wallpaper soft-deleted between validation and write. Dedicated Library default-selection/deletion transactions do not fix every existing writer.
+- Historical campaign duplication/activation can reference a soft-deleted wallpaper; those inherited paths need guards plus real PostgreSQL interleaving tests.
+- The owner-approved LDAP certificate-verification opt-out remains a risk: encryption without server authentication does not prevent an active intermediary from intercepting credentials or forging directory replies. Verification is enabled by default; restore a trusted CA/matching hostname for deployment. This task did not change runtime settings or override that explicit prior decision.
+
+These are tracked release-hardening limitations, not claims of new production acceptance. Git publication of the scoped auth fix and prior authorized source work is not permission to deploy. Full deployment readiness remains incomplete.
+
 ### 1. Large Gap Between Prototype And Target Architecture
 
 The repository is currently a static frontend prototype, while the PRD requires a full enterprise platform with backend services, queueing, persistence, deployment logic, and Docker deployment.
@@ -178,3 +189,13 @@ Verification:
 ## Tracking Rule
 
 Any newly discovered ambiguity that affects product behavior, architecture, security, deployment, or API contract must be added here before the related phase is declared complete.
+
+## Wallpaper Library follow-up (2026-09-27)
+
+- Settings maxUploadSizeMb is not consumed by the existing upload transport; Library now honestly displays the actual 64 MiB API limit. A separate upload-policy change should reconcile configurable limits and proxy overhead.
+- Local isolated route/browser verification does not prove server deployment, scheduler or Group Policy acceptance. Repeat the UX-CONTRACT deployment checklist on the target server.
+- Authentication was previously the only global API gate. This slice enforces Library roles, Administrator-only settings writes, and non-Viewer campaign mutations. A complete RBAC audit of the remaining routes is still needed.
+
+## Assigned AD authentication — 2026-09-27
+
+The user approved AD login with access and roles assigned only through Users. This supersedes earlier LDAP deferral notes. See `ad-login-contract.md` for credential/assignment boundaries, explicit AD/LOCAL source, objectGUID identity pinning, TLS/CA configuration, session revocation, additive schema deployment, and verification limitations. Existing accounts remain LOCAL until explicitly changed in Users.

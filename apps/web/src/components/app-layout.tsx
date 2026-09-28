@@ -46,7 +46,7 @@ export function AppLayout({
   return (
     <div className="min-h-screen bg-background text-foreground flex">
       {/* Sidebar */}
-      <aside className="w-64 shrink-0 border-r border-border bg-sidebar flex flex-col">
+      <aside className="w-64 shrink-0 border-r border-border bg-sidebar hidden md:flex flex-col">
         <div className="px-5 py-5 flex items-center gap-3 border-b border-border">
           <div className="h-10 w-10 rounded-lg bg-primary text-primary-foreground flex items-center justify-center font-bold">
             <svg
@@ -122,12 +122,12 @@ export function AppLayout({
 
       {/* Main */}
       <div className="flex-1 flex flex-col min-w-0">
-        <header className="h-16 border-b border-border bg-card flex items-center px-8 gap-4">
+        <header className="min-h-16 border-b border-border bg-card flex items-center px-4 md:px-8 py-3 gap-4">
           <div className="flex-1 min-w-0">
             <h1 className="text-xl font-bold text-foreground leading-tight">{title}</h1>
             {subtitle && <p className="text-xs text-muted-foreground">{subtitle}</p>}
           </div>
-          <div className="flex items-center gap-3 pl-3 border-l border-border">
+          <div className="hidden lg:flex items-center gap-3 pl-3 border-l border-border">
             <div className="h-9 w-9 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-sm font-semibold">
               W
             </div>
@@ -139,7 +139,35 @@ export function AppLayout({
           </div>
         </header>
 
-        <main className="flex-1 p-8 overflow-auto">{children}</main>
+        <nav
+          aria-label="Mobile navigation"
+          className="md:hidden flex flex-wrap gap-2 p-3 border-b bg-card"
+        >
+          {visibleNav.map((item) => (
+            <Link
+              key={item.to}
+              to={item.to}
+              aria-current={pathname === item.to ? "page" : undefined}
+              className={cn(
+                "rounded-md px-2 py-1 text-sm",
+                pathname === item.to ? "bg-primary-soft text-primary" : "text-muted-foreground",
+              )}
+            >
+              {item.label}
+            </Link>
+          ))}
+          <button
+            type="button"
+            className="px-2 py-1 text-sm"
+            onClick={async () => {
+              await logout();
+              await navigate({ to: "/login" });
+            }}
+          >
+            Logout
+          </button>
+        </nav>
+        <main className="flex-1 p-4 md:p-8 overflow-auto">{children}</main>
 
         <footer className="border-t border-border bg-card px-8 py-4 text-center text-xs text-muted-foreground">
           Copyright © 2026 Corporate IT. All rights reserved.

@@ -73,6 +73,16 @@ Current state:
 - the wallpaper configured as default is surfaced in the UI and protected from deletion
 - unauthorized roles are denied from the wallpaper route
 
+Approved Library workflow (2026-09-27):
+
+- `../UX-CONTRACT.md` defines card/detail actions, role permissions, upload preview, deletion safeguards, and empty/error states.
+- Cards and detail views open Create campaign with the selected image; no campaign is saved automatically.
+- Administrators can choose the default directly in Library through an isolated setting update and explicit fallback explanation.
+- Details expose uploader, metadata, all campaign references and schedules; title/description can be edited without replacing image bytes.
+- Preview-before-save uses server normalization without persisting an asset. JPG/PNG source ceiling remains 64 MiB. Saving does not publish.
+- Default and draft/scheduled/active usage block deletion server-side. Default and campaign badges can coexist; Unused means no campaign references and not default.
+- Filters, sorting and search are explicit; image/list failures support retry. Library and upload changes are authorized server-side.
+
 ### 4. Campaign Management
 
 Target behavior:
@@ -261,3 +271,7 @@ Current state:
 ## Current Implementation Verdict
 
 The repository now satisfies a substantial part of the MVP functional surface, including default wallpaper fallback and validated SYSVOL publishing, but it still does not fully satisfy the PRD because backend-grade RBAC depth and Redis / BullMQ-backed scheduler workers are not yet complete.
+
+## Assigned AD authentication — 2026-09-27
+
+The user approved AD login with access and roles assigned only through Users. This supersedes earlier LDAP deferral notes. See `ad-login-contract.md` for credential/assignment boundaries, explicit AD/LOCAL source, objectGUID identity pinning, TLS/CA configuration, session revocation, additive schema deployment, and verification limitations. Existing accounts remain LOCAL until explicitly changed in Users.

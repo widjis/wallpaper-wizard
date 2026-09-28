@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 export const loginSchema = z.object({
-  username: z.string().min(1),
+  username: z.string().trim().min(1).max(200),
   password: z.string().min(1),
 });
 
@@ -43,15 +43,32 @@ export const settingsUpdateSchema = z.object({
   autoRetryFailedDeployments: z.boolean(),
 });
 
-export const userCreateSchema = z.object({
-  username: z.string().min(1),
-  password: z.string().min(6),
-  role: z.enum(["ADMINISTRATOR", "OPERATOR", "VIEWER"]),
-  isActive: z.boolean().default(true),
-});
+export const userCreateSchema = z
+  .object({
+    username: z.string().trim().min(1).max(200),
+    authSource: z.enum(["LOCAL", "AD"]).default("LOCAL"),
+    password: z.string().min(6).optional(),
+    role: z.enum(["ADMINISTRATOR", "OPERATOR", "VIEWER"]),
+    isActive: z.boolean().default(true),
+  })
+  .superRefine((data, ctx) => {
+    if (data.authSource === "LOCAL" && !data.password)
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["password"],
+        message: "Local accounts require a password.",
+      });
+    if (data.authSource === "AD" && data.password)
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["password"],
+        message: "Do not submit AD passwords in Users.",
+      });
+  });
 
 export const userUpdateSchema = z.object({
-  username: z.string().min(1),
+  authSource: z.enum(["LOCAL", "AD"]).optional(),
+  username: z.string().trim().min(1).max(200),
   password: z.string().min(6).optional(),
   role: z.enum(["ADMINISTRATOR", "OPERATOR", "VIEWER"]),
   isActive: z.boolean(),

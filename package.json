@@ -19,7 +19,13 @@
     "db:prepare": "node scripts/ensure-postgres-db.mjs",
     "prisma:generate": "npm run prisma:generate -w @cwcm/api",
     "prisma:migrate": "npm run prisma:migrate -w @cwcm/api",
-    "prisma:push": "npm run prisma:push -w @cwcm/api"
+    "prisma:push": "npm run prisma:push -w @cwcm/api",
+    "test:wallpapers": "node --import tsx --test apps/api/tests/wallpaper-routes.test.ts",
+    "test:wallpapers:ui": "python3 scripts/verify-wallpaper-library-ui.py",
+    "test:auth:postgres": "node --import tsx --test apps/api/tests/auth-session-race.test.mjs",
+    "test:ad": "node --import tsx --test apps/api/tests/ad-auth.test.ts",
+    "db:ad-schema": "node scripts/apply-ad-schema.mjs",
+    "test:ad:ui": "python3 scripts/verify-ad-users-ui.py"
   },
   "devDependencies": {
     "pg": "^8.16.3",

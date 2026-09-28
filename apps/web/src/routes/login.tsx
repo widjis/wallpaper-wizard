@@ -12,7 +12,7 @@ export const Route = createFileRoute("/login")({
 function LoginPage() {
   const navigate = useNavigate();
   const { login } = useAuth();
-  const [username, setUsername] = useState("Widji");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -23,11 +23,13 @@ function LoginPage() {
         <div className="mb-6">
           <h1 className="text-2xl font-bold">CWCM Login</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Sign in with your local CWCM account.
+            Use your assigned username and AD password, or your local account password. Access must
+            first be granted by an Administrator.
           </p>
         </div>
 
         <form
+          noValidate
           className="space-y-4"
           onSubmit={async (event) => {
             event.preventDefault();
@@ -44,19 +46,30 @@ function LoginPage() {
           }}
         >
           <div className="space-y-1.5">
-            <Label>Username</Label>
-            <Input value={username} onChange={(event) => setUsername(event.target.value)} />
+            <Label htmlFor="login-username">Username</Label>
+            <Input
+              id="login-username"
+              autoComplete="username"
+              value={username}
+              onChange={(event) => setUsername(event.target.value)}
+            />
           </div>
           <div className="space-y-1.5">
-            <Label>Password</Label>
+            <Label htmlFor="login-password">Password</Label>
             <Input
+              id="login-password"
+              autoComplete="current-password"
               type="password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
             />
           </div>
-          {error ? <div className="text-sm text-destructive">{error}</div> : null}
-          <Button className="w-full" disabled={submitting}>
+          {error ? (
+            <div role="alert" className="text-sm text-destructive">
+              {error}
+            </div>
+          ) : null}
+          <Button className="w-full" disabled={submitting || !username.trim() || !password}>
             {submitting ? "Signing in..." : "Sign In"}
           </Button>
         </form>

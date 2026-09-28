@@ -44,6 +44,12 @@ const configSchema = z
     CIFS_SHARE_PATH: z.string().min(1),
     CIFS_VERS: z.string().default("3.0"),
     LDAP_URL: z.string().optional(),
+    LDAP_TLS_REJECT_UNAUTHORIZED: z
+      .enum(["true", "false"])
+      .default("true")
+      .transform((value) => value === "true"),
+    LDAP_CA_FILE: z.string().optional(),
+    LDAP_TIMEOUT_MS: z.coerce.number().int().min(1000).max(30000).default(5000),
     LDAP_BIND_DN: z.string().optional(),
     LDAP_BIND_PASSWORD: z.string().optional(),
     LDAP_BASE_DN: z.string().optional(),

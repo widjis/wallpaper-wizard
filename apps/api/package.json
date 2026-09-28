@@ -23,6 +23,7 @@
     "dotenv": "^17.2.1",
     "fastify": "^5.4.0",
     "ioredis": "^5.7.0",
+    "ldapts": "^9.2.0",
     "node-cron": "^4.2.1",
     "pino": "^9.7.0",
     "pino-pretty": "^13.1.1",

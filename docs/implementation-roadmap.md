@@ -246,6 +246,11 @@ Prepare the product for operational deployment.
 - [x] align `docker-compose.yml` with the current required runtime topology (`proxy`, `web`, `api`, `redis`, external PostgreSQL)
 - [x] harden API and web Dockerfiles for reproducible Compose startup
 - [x] add API health-gated proxy startup and structured upstream-unavailable handling
+- [x] serialize authentication revision validation/session issuance against Users changes and verify PostgreSQL concurrency regressions (`auth-session-race-verification.md`)
+- [x] implement assigned AD/local authentication and Users source selection with isolated verification
+- [ ] apply AD schema and verify target-host TLS, service lookup and assigned-user login
+- [x] implement and verify the approved Wallpaper Library action/detail/upload workflow and synchronize UX/API contracts
+- [ ] verify Wallpaper Library workflow after deployment on the target server
 - [x] configure the API proxy body limit at 65 MiB to accommodate the existing 64 MiB upload limit plus multipart overhead
 - [ ] validate the upload proxy limit with `nginx -t`, reload, and a wallpaper upload on the deployment host
 - [ ] define Prisma/database initialization flow for Docker deployment
@@ -258,6 +263,12 @@ Prepare the product for operational deployment.
 - on-prem deployment package, operating guidance, and a mock-free operator UI baseline
 
 ### Challenge / Verification
+
+- Authentication race follow-up (2026-09-28): `auth-session-race-verification.md` records real PostgreSQL RED→GREEN evidence and ten passing concurrency/control tests. Serializable revision validation/session issuance is atomic against account updates/revocation; no race-fix schema change or live migration was required. AD twelve and Wallpaper Library nine regressions, build/typecheck/lint and bounded Prisma validation pass.
+
+- Assigned AD login (2026-09-27): `ad-login-contract.md` records twelve isolated auth/assignment tests, nine Wallpaper Library regressions, Users/login browser checks, build/typecheck/lint and Prisma validation. AD source assignment remains explicit; existing accounts stay LOCAL. Initial LDAPS trust probe failed; owner approved LDAP-only certificate bypass via `LDAP_TLS_REJECT_UNAUTHORIZED=false`. Local live service bind and lookup of widji.santoso then passed. Twelve isolated auth tests cover default verification and explicit bypass. Database change and target-host user-password login acceptance remain pending.
+
+- Wallpaper Library workflow (2026-09-27): see `wallpaper-library-verification.md` for build/typecheck/lint results, nine isolated backend tests, Administrator/Operator browser flows, keyboard/error recovery and desktop/mobile checks. `../UX-CONTRACT.md`, functional specification, OpenAPI and data-model notes are synchronized. Target-host deployment acceptance remains pending.
 
 - `npm install`, `npm run lint:api`, `npm run build:api`, `npm run lint:web`, `npm run build:web`, and `GetDiagnostics` were rerun during the latest work item
 - Upload proxy fix (2026-09-27): configuration review confirms `client_max_body_size 65m` is scoped to `/api/`; Compose bind-mounts this file into the proxy. The supplied 2,005,386-byte PNG passed the existing normalization function locally (1920x1080 JPEG, 358,027 bytes). Runtime Nginx validation and upload acceptance remain pending: local Docker daemon is unavailable and the Docker CLI lacks Compose. `docs/openapi.yaml` was reviewed; API routes, payloads, and the existing per-file limit are unchanged.

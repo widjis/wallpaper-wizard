@@ -141,3 +141,9 @@ Usage notes:
 - add secret rotation and operational runbook guidance
 - document fallback local-development strategy if a standalone PostgreSQL container is ever needed outside production
 - validate the Ubuntu Docker host can create the CIFS-backed `sysvol` volume with the current credentials and SMB version
+
+## Assigned AD authentication — 2026-09-27
+
+The user approved AD login with access and roles assigned only through Users. This supersedes earlier LDAP deferral notes. See `ad-login-contract.md` for credential/assignment boundaries, explicit AD/LOCAL source, objectGUID identity pinning, TLS/CA configuration, session revocation, additive schema deployment, and verification limitations. Existing accounts remain LOCAL until explicitly changed in Users.
+
+LDAP certificate verification defaults to enabled. Per the owner-approved no-CA configuration (2026-09-27), set `LDAP_TLS_REJECT_UNAUTHORIZED=false` in the target server `.env` and recreate the API container after building the updated code. This option is LDAP-only; LDAPS/StartTLS encryption remains enabled. Local service bind/search passed with this setting; target-host user login acceptance remains separate.

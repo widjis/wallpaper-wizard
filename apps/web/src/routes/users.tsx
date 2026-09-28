@@ -1,12 +1,19 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { UserPlus, Search } from "lucide-react";
 import { toast } from "sonner";
 import { AppLayout } from "@/components/app-layout";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/lib/auth";
 import { isAdministrator } from "@/lib/roles";
@@ -61,9 +68,11 @@ function Page() {
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
+  const [confirmSave, setConfirmSave] = useState(false);
   const [deleteUserId, setDeleteUserId] = useState<string | null>(null);
   const [form, setForm] = useState<UserMutationPayload>({
     username: "",
+    authSource: "AD",
     password: "",
     role: "OPERATOR",
     isActive: true,
@@ -78,7 +87,7 @@ function Page() {
     mutationFn: (payload: UserMutationPayload) =>
       apiPost<UserSummary>("/users", {
         ...payload,
-        password: payload.password ?? "",
+        password: payload.authSource === "AD" ? undefined : payload.password || undefined,
       }),
     onSuccess: () => {
       resetForm();
@@ -95,7 +104,10 @@ function Page() {
       if (!editingUserId) {
         throw new Error("User ID is required");
       }
-      return apiPatch<UserSummary>(`/users/${editingUserId}`, payload);
+      return apiPatch<UserSummary>(`/users/${editingUserId}`, {
+        ...payload,
+        password: payload.authSource === "AD" ? undefined : payload.password || undefined,
+      });
     },
     onSuccess: () => {
       resetForm();
@@ -126,6 +138,7 @@ function Page() {
         name: user.username,
         role: user.role.charAt(0) + user.role.slice(1).toLowerCase(),
         roleValue: user.role,
+        authSource: user.authSource ?? "LOCAL",
         last: formatDateTime(user.lastLoginAt),
         status: user.isActive ? "Active" : "Disabled",
       })) ?? [],
@@ -149,6 +162,7 @@ function Page() {
     setEditingUserId(null);
     setForm({
       username: "",
+      authSource: "AD",
       password: "",
       role: "OPERATOR",
       isActive: true,
@@ -185,8 +199,8 @@ function Page() {
                 resetForm();
                 return;
               }
+              resetForm();
               setShowForm(true);
-              setEditingUserId(null);
             }}
           >
             <UserPlus className="h-4 w-4 mr-2" />
@@ -202,12 +216,41 @@ function Page() {
             value={form.username}
             onChange={(value) => setForm({ ...form, username: value })}
           />
-          <Field
-            label={editingUserId ? "New password (optional)" : "Password"}
-            type="password"
-            value={form.password ?? ""}
-            onChange={(value) => setForm({ ...form, password: value })}
-          />
+          <div className="space-y-1.5">
+            <Label htmlFor="user-auth-source">Sign-in method</Label>
+            <Select
+              value={form.authSource ?? "LOCAL"}
+              onValueChange={(value) =>
+                setForm({ ...form, authSource: value as "AD" | "LOCAL", password: "" })
+              }
+            >
+              <SelectTrigger id="user-auth-source">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="AD">Active Directory</SelectItem>
+                <SelectItem value="LOCAL">Local account</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          {form.authSource === "AD" ? (
+            <p className="text-sm text-muted-foreground md:col-span-2">
+              Enter the AD username (for example widji.santoso) or full user principal name. The
+              account is verified against AD when assigned. Users sign in with their AD password; no
+              password is stored here. Domain\username is not supported.
+            </p>
+          ) : (
+            <Field
+              label={
+                editingUserId
+                  ? "New local password (required when switching from AD)"
+                  : "Local password"
+              }
+              type="password"
+              value={form.password ?? ""}
+              onChange={(value) => setForm({ ...form, password: value })}
+            />
+          )}
           <div className="space-y-1.5">
             <Label>Role</Label>
             <select
@@ -243,10 +286,17 @@ function Page() {
           </div>
           <div className="md:col-span-2 flex gap-3">
             <Button
-              onClick={() =>
-                editingUserId ? updateMutation.mutate(form) : createMutation.mutate(form)
+              onClick={() => setConfirmSave(true)}
+              disabled={
+                !form.username.trim() ||
+                createMutation.isPending ||
+                updateMutation.isPending ||
+                (form.authSource !== "AD" &&
+                  (!editingUserId ||
+                    !!form.password ||
+                    data?.items.find((user) => user.id === editingUserId)?.authSource === "AD") &&
+                  (form.password?.length ?? 0) < 6)
               }
-              disabled={createMutation.isPending || updateMutation.isPending}
             >
               {editingUserId
                 ? updateMutation.isPending
@@ -268,6 +318,7 @@ function Page() {
             <TableRow>
               <TableHead>Name</TableHead>
               <TableHead>Role</TableHead>
+              <TableHead>Sign-in method</TableHead>
               <TableHead>Last login</TableHead>
               <TableHead>Status</TableHead>
               <TableHead className="text-right">Actions</TableHead>
@@ -276,19 +327,19 @@ function Page() {
           <TableBody>
             {isPending ? (
               <TableRow>
-                <TableCell colSpan={5} className="py-10 text-center text-muted-foreground">
+                <TableCell colSpan={6} className="py-10 text-center text-muted-foreground">
                   Loading users...
                 </TableCell>
               </TableRow>
             ) : error ? (
               <TableRow>
-                <TableCell colSpan={5} className="py-10 text-center text-destructive">
+                <TableCell colSpan={6} className="py-10 text-center text-destructive">
                   {error instanceof Error ? error.message : "Failed to load users."}
                 </TableCell>
               </TableRow>
             ) : filteredRows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} className="py-10 text-center text-muted-foreground">
+                <TableCell colSpan={6} className="py-10 text-center text-muted-foreground">
                   {search ? "No users match the current search." : "No users available yet."}
                 </TableCell>
               </TableRow>
@@ -308,6 +359,7 @@ function Page() {
                       {u.role}
                     </Badge>
                   </TableCell>
+                  <TableCell>{u.authSource === "AD" ? "Active Directory" : "Local"}</TableCell>
                   <TableCell className="text-muted-foreground">{u.last}</TableCell>
                   <TableCell>
                     {u.status === "Active" ? (
@@ -334,6 +386,7 @@ function Page() {
                           setShowForm(true);
                           setForm({
                             username: live.username,
+                            authSource: live.authSource ?? "LOCAL",
                             password: "",
                             role: live.role,
                             isActive: live.isActive,
@@ -360,6 +413,46 @@ function Page() {
         </Table>
       </div>
 
+      <AlertDialog
+        open={confirmSave}
+        onOpenChange={(open) => {
+          if (!createMutation.isPending && !updateMutation.isPending) setConfirmSave(open);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {editingUserId ? "Update portal access?" : "Assign portal access?"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {form.username} will use{" "}
+              {form.authSource === "AD" ? "Active Directory" : "a local password"} with the{" "}
+              {form.role} role. Status: {form.isActive ? "Active" : "Disabled"}. Updating an account
+              signs out its existing sessions. No AD group membership or password is changed.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {(createMutation.error || updateMutation.error) && (
+            <p role="alert" className="text-destructive">
+              {(createMutation.error || updateMutation.error)?.message}
+            </p>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={createMutation.isPending || updateMutation.isPending}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={createMutation.isPending || updateMutation.isPending}
+              onClick={(e) => {
+                e.preventDefault();
+                const mutation = editingUserId ? updateMutation : createMutation;
+                mutation.mutate(form, { onSuccess: () => setConfirmSave(false) });
+              }}
+            >
+              {createMutation.isPending || updateMutation.isPending ? "Saving…" : "Save access"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <AlertDialog
         open={Boolean(deleteUserId)}
         onOpenChange={(open) => !open && setDeleteUserId(null)}
@@ -402,10 +495,11 @@ function Field({
   onChange: (value: string) => void;
   type?: string;
 }) {
+  const id = useId();
   return (
     <div className="space-y-1.5">
-      <Label>{label}</Label>
-      <Input type={type} value={value} onChange={(event) => onChange(event.target.value)} />
+      <Label htmlFor={id}>{label}</Label>
+      <Input id={id} type={type} value={value} onChange={(event) => onChange(event.target.value)} />
     </div>
   );
 }

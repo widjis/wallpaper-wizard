@@ -23,6 +23,8 @@ The following documents define the current planning baseline:
 - `AGENTS.md`
 - `docs/project-plan.md`
 - `docs/product-principles.md`
+- `UX-CONTRACT.md` — approved Wallpaper Library behavior and acceptance
+- `DESIGN.md` — existing UI ownership and design context
 - `docs/functional-specification.md`
 - `docs/technical-implementation-plan.md`
 - `docs/openapi.yaml`
@@ -31,6 +33,7 @@ The following documents define the current planning baseline:
 - `docs/open-questions-and-challenges.md`
 - `docs/existing-project-gap-analysis.md`
 - `docs/deployment-and-environment.md`
+- `docs/ad-login-contract.md` — assigned AD login, required schema change and trusted LDAP CA
 - `docs/docker-implementation-plan.md`
 
 ## Repository Status
@@ -78,7 +81,7 @@ The repository has been migrated to the target monorepo baseline, although some 
 
 Requirements:
 
-- Node.js 20+
+- Node.js 22+ (required by ldapts)
 - npm 10+
 
 Run locally:

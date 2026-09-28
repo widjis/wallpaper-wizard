@@ -180,3 +180,7 @@ cwcm/
 ## Immediate Recommendation
 
 Treat the repository as an implemented MVP foundation with live web/API integration, then focus the next iteration on Docker deployment reproducibility and target-environment SMB validation before resuming BullMQ migration work.
+
+## Assigned AD authentication — 2026-09-27
+
+The user approved AD login with access and roles assigned only through Users. This supersedes earlier LDAP deferral notes. See `ad-login-contract.md` for credential/assignment boundaries, explicit AD/LOCAL source, objectGUID identity pinning, TLS/CA configuration, session revocation, additive schema deployment, and verification limitations. Existing accounts remain LOCAL until explicitly changed in Users.

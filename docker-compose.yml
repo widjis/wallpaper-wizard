@@ -13,6 +13,7 @@ services:
       - "3000"
     volumes:
       - sysvol:/app/sysvol
+      - ./certs:/app/certs:ro
     depends_on:
       - redis
     healthcheck:

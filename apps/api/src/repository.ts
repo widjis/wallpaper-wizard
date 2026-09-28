@@ -18,6 +18,8 @@ import {
   UserRole,
 } from "@prisma/client";
 import bcrypt from "bcryptjs";
+import { directory, InvalidLogin } from "./directory.js";
+import { verifyAssignedCredentials } from "./assigned-auth.js";
 import { randomBytes } from "node:crypto";
 import { prisma } from "./prisma.js";
 import { appConfig } from "./config.js";
@@ -365,39 +367,47 @@ export async function scheduleNextSchedulerRun(referenceDate = new Date()) {
   });
 }
 
-export async function loginWithLocalAuth(
+export async function loginWithAssignedAuth(
   username: string,
   password: string,
 ): Promise<LoginResponse> {
-  const user = await prisma.user.findUnique({
-    where: { username },
+  const matches = await prisma.user.findMany({
+    where: { username: { equals: username.trim(), mode: "insensitive" } },
+    take: 2,
   });
-
-  if (!user || !user.isActive) {
-    throw new Error("Invalid username or password");
-  }
-
-  const isMatch = await bcrypt.compare(password, user.passwordHash);
-  if (!isMatch) {
-    throw new Error("Invalid username or password");
-  }
-
+  const user = matches.length === 1 ? matches[0] : null;
+  await verifyAssignedCredentials(user, password);
+  if (!user) throw new InvalidLogin();
   const token = randomBytes(32).toString("base64url");
   const expiresAt = new Date(Date.now() + 8 * 60 * 60 * 1000);
-  await prisma.session.create({
-    data: {
-      userId: user.id,
-      token,
-      expiresAt,
-    },
-  });
-
-  await prisma.user.update({
-    where: { id: user.id },
-    data: {
-      lastLoginAt: new Date(),
-    },
-  });
+  const lastLoginAt = new Date();
+  try {
+    await prisma.$transaction(
+      async (tx) => {
+        const current = await tx.user.findUnique({ where: { id: user.id } });
+        if (
+          !current ||
+          !current.isActive ||
+          current.deletedAt ||
+          current.updatedAt.getTime() !== user.updatedAt.getTime()
+        )
+          throw new InvalidLogin();
+        // PostgreSQL serializes this write and session INSERT against the Users
+        // update + revocation transaction, including across API processes.
+        await tx.user.update({
+          where: { id: user.id },
+          data: { lastLoginAt, updatedAt: current.updatedAt },
+        });
+        await tx.session.create({ data: { userId: user.id, token, expiresAt } });
+      },
+      { isolationLevel: "Serializable" },
+    );
+  } catch (error) {
+    // Do not retry already-verified credentials against a changed account.
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034")
+      throw new InvalidLogin();
+    throw error;
+  }
 
   return {
     token,
@@ -405,9 +415,10 @@ export async function loginWithLocalAuth(
     user: {
       id: user.id,
       username: user.username,
+      authSource: user.authSource as "LOCAL" | "AD",
       role: mapRole(user.role),
       isActive: user.isActive,
-      lastLoginAt: new Date().toISOString(),
+      lastLoginAt: lastLoginAt.toISOString(),
     },
   };
 }
@@ -435,6 +446,7 @@ export async function getSessionByToken(
     user: {
       id: session.user.id,
       username: session.user.username,
+      authSource: session.user.authSource as "LOCAL" | "AD",
       role: mapRole(session.user.role),
       isActive: session.user.isActive,
       lastLoginAt: session.user.lastLoginAt?.toISOString() ?? null,
@@ -463,6 +475,7 @@ export async function listUsers(): Promise<UserSummary[]> {
   return users.map((user) => ({
     id: user.id,
     username: user.username,
+    authSource: user.authSource as "LOCAL" | "AD",
     role: mapRole(user.role),
     isActive: user.isActive,
     lastLoginAt: user.lastLoginAt?.toISOString() ?? null,
@@ -471,35 +484,57 @@ export async function listUsers(): Promise<UserSummary[]> {
 
 export async function createUserRecord(payload: {
   username: string;
-  password: string;
+  password?: string;
+  authSource?: "LOCAL" | "AD";
   role: UserRole;
   isActive: boolean;
   createdById: string;
 }): Promise<UserSummary> {
-  const passwordHash = await bcrypt.hash(payload.password, 10);
-  const user = await prisma.user.create({
-    data: {
-      username: payload.username,
-      passwordHash,
-      role: payload.role,
-      isActive: payload.isActive,
+  const authSource = payload.authSource ?? "LOCAL";
+  const username = payload.username.trim();
+  if (authSource === "LOCAL" && (!payload.password || payload.password.length < 6))
+    throw new Error("Local accounts require a password of at least 6 characters.");
+  if (authSource === "AD" && payload.password)
+    throw new Error("AD passwords must not be entered in Users.");
+  const identity = authSource === "AD" ? await directory.lookup(username) : null;
+  const passwordHash = await bcrypt.hash(
+    authSource === "AD" ? randomBytes(48).toString("base64url") : payload.password!,
+    10,
+  );
+  const user = await prisma.$transaction(
+    async (tx) => {
+      if (
+        await tx.user.findFirst({ where: { username: { equals: username, mode: "insensitive" } } })
+      )
+        throw new Error("An account with this username already exists.");
+      const user = await tx.user.create({
+        data: {
+          username,
+          passwordHash,
+          authSource,
+          adObjectId: identity?.objectId ?? null,
+          role: payload.role,
+          isActive: payload.isActive,
+        },
+      });
+      await tx.activityLog.create({
+        data: {
+          actor: payload.createdById,
+          action: "user.created",
+          detail: `${username} (${authSource})`,
+        },
+      });
+      return user;
     },
-  });
-
-  await prisma.activityLog.create({
-    data: {
-      actor: payload.createdById,
-      action: "user.created",
-      detail: user.username,
-    },
-  });
-
+    { isolationLevel: "Serializable" },
+  );
   return {
     id: user.id,
     username: user.username,
+    authSource,
     role: mapRole(user.role),
     isActive: user.isActive,
-    lastLoginAt: user.lastLoginAt?.toISOString() ?? null,
+    lastLoginAt: null,
   };
 }
 
@@ -507,43 +542,99 @@ export async function updateUserRecord(payload: {
   userId: string;
   username: string;
   password?: string;
+  authSource?: "LOCAL" | "AD";
   role: UserRole;
   isActive: boolean;
   updatedById: string;
 }): Promise<UserSummary> {
-  const existingUser = await prisma.user.findUnique({
-    where: { id: payload.userId },
-  });
-
-  if (!existingUser) {
-    throw new Error("User not found");
-  }
-
-  if (existingUser.deletedAt) {
-    throw new Error("User account has been deleted");
-  }
-
-  const user = await prisma.user.update({
-    where: { id: payload.userId },
-    data: {
-      username: payload.username,
-      role: payload.role,
-      isActive: payload.isActive,
-      ...(payload.password ? { passwordHash: await bcrypt.hash(payload.password, 10) } : {}),
+  const existing = await prisma.user.findUnique({ where: { id: payload.userId } });
+  if (!existing || existing.deletedAt) throw new Error("User not found");
+  const authSource = payload.authSource ?? existing.authSource;
+  const username = payload.username.trim();
+  if (authSource === "AD" && payload.password)
+    throw new Error("AD passwords must not be entered in Users.");
+  if (authSource === "LOCAL" && existing.authSource !== "LOCAL" && !payload.password)
+    throw new Error("Set a new local password when switching from AD.");
+  // Role/status-only changes remain possible during an AD outage, particularly access revocation.
+  const reassignment =
+    authSource === "AD" &&
+    (existing.authSource !== "AD" || username.toLowerCase() !== existing.username.toLowerCase());
+  const identity = reassignment ? await directory.lookup(username) : null;
+  const adObjectId = authSource === "AD" ? (identity?.objectId ?? existing.adObjectId) : null;
+  if (authSource === "AD" && !adObjectId)
+    throw new Error("Reassign this AD account before enabling access.");
+  const passwordHash =
+    authSource === "AD" && existing.authSource !== "AD"
+      ? await bcrypt.hash(randomBytes(48).toString("base64url"), 10)
+      : payload.password
+        ? await bcrypt.hash(payload.password, 10)
+        : existing.passwordHash;
+  const user = await prisma.$transaction(
+    async (tx) => {
+      const latest = await tx.user.findUnique({ where: { id: existing.id } });
+      if (
+        !latest ||
+        latest.deletedAt ||
+        latest.updatedAt.getTime() !== existing.updatedAt.getTime()
+      )
+        throw new Error("This account changed. Reload Users and try again.");
+      if (
+        await tx.user.findFirst({
+          where: { id: { not: existing.id }, username: { equals: username, mode: "insensitive" } },
+        })
+      )
+        throw new Error("An account with this username already exists.");
+      if (
+        existing.role === "ADMINISTRATOR" &&
+        existing.isActive &&
+        (payload.role !== "ADMINISTRATOR" ||
+          !payload.isActive ||
+          (existing.authSource === "LOCAL" && authSource !== "LOCAL"))
+      ) {
+        const count = await tx.user.count({
+          where: {
+            id: { not: existing.id },
+            role: "ADMINISTRATOR",
+            isActive: true,
+            deletedAt: null,
+            ...(existing.authSource === "LOCAL" ? { authSource: "LOCAL" } : {}),
+          },
+        });
+        if (!count) throw new Error("Keep at least one active local Administrator for recovery.");
+      }
+      const result = await tx.user.update({
+        where: { id: existing.id },
+        data: {
+          username,
+          authSource,
+          adObjectId,
+          passwordHash,
+          role: payload.role,
+          isActive: payload.isActive,
+          // updatedAt is the authentication revision, not merely wall-clock time.
+          // Advance even for no-op access saves and same-millisecond updates.
+          updatedAt: new Date(Math.max(Date.now(), latest.updatedAt.getTime() + 1)),
+        },
+      });
+      await tx.session.updateMany({
+        where: { userId: existing.id, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+      await tx.activityLog.create({
+        data: {
+          actor: payload.updatedById,
+          action: "user.updated",
+          detail: `${username} (${authSource}); sessions revoked`,
+        },
+      });
+      return result;
     },
-  });
-
-  await prisma.activityLog.create({
-    data: {
-      actor: payload.updatedById,
-      action: "user.updated",
-      detail: user.username,
-    },
-  });
-
+    { isolationLevel: "Serializable" },
+  );
   return {
     id: user.id,
     username: user.username,
+    authSource: user.authSource as "LOCAL" | "AD",
     role: mapRole(user.role),
     isActive: user.isActive,
     lastLoginAt: user.lastLoginAt?.toISOString() ?? null,
@@ -554,59 +645,37 @@ export async function deleteUserRecord(payload: {
   userId: string;
   deletedById: string;
 }): Promise<void> {
-  const existingUser = await prisma.user.findUnique({
-    where: { id: payload.userId },
-  });
-
-  if (!existingUser) {
-    throw new Error("User not found");
-  }
-
-  if (existingUser.deletedAt) {
-    return;
-  }
-
-  if (existingUser.id === payload.deletedById) {
-    throw new Error("You cannot delete your own account");
-  }
-
-  if (existingUser.role === UserRole.ADMINISTRATOR && existingUser.isActive) {
-    const otherActiveAdministrators = await prisma.user.count({
-      where: {
-        id: { not: existingUser.id },
-        role: UserRole.ADMINISTRATOR,
-        isActive: true,
-        deletedAt: null,
-      },
-    });
-
-    if (otherActiveAdministrators === 0) {
-      throw new Error("The last active administrator cannot be deleted");
-    }
-  }
-
-  const deletedAt = new Date();
-
-  await prisma.$transaction([
-    prisma.session.updateMany({
-      where: { userId: existingUser.id, revokedAt: null },
-      data: { revokedAt: deletedAt },
-    }),
-    prisma.user.update({
-      where: { id: existingUser.id },
-      data: {
-        isActive: false,
-        deletedAt,
-      },
-    }),
-    prisma.activityLog.create({
-      data: {
-        actor: payload.deletedById,
-        action: "user.deleted",
-        detail: existingUser.username,
-      },
-    }),
-  ]);
+  await prisma.$transaction(
+    async (tx) => {
+      const existing = await tx.user.findUnique({ where: { id: payload.userId } });
+      if (!existing) throw new Error("User not found");
+      if (existing.deletedAt) return;
+      if (existing.id === payload.deletedById)
+        throw new Error("You cannot delete your own account");
+      if (existing.role === "ADMINISTRATOR" && existing.isActive) {
+        const others = await tx.user.count({
+          where: {
+            id: { not: existing.id },
+            role: "ADMINISTRATOR",
+            isActive: true,
+            deletedAt: null,
+            ...(existing.authSource === "LOCAL" ? { authSource: "LOCAL" } : {}),
+          },
+        });
+        if (!others) throw new Error("Keep at least one active local Administrator for recovery.");
+      }
+      const deletedAt = new Date();
+      await tx.session.updateMany({
+        where: { userId: existing.id, revokedAt: null },
+        data: { revokedAt: deletedAt },
+      });
+      await tx.user.update({ where: { id: existing.id }, data: { isActive: false, deletedAt } });
+      await tx.activityLog.create({
+        data: { actor: payload.deletedById, action: "user.deleted", detail: existing.username },
+      });
+    },
+    { isolationLevel: "Serializable" },
+  );
 }
 
 export async function listWallpapers(): Promise<WallpaperSummary[]> {
@@ -626,8 +695,9 @@ export async function listWallpapers(): Promise<WallpaperSummary[]> {
       checksumSha256: true,
       mimeType: true,
       uploadedAt: true,
+      uploadedBy: { select: { username: true } },
       campaigns: {
-        select: { status: true },
+        select: { id: true, name: true, status: true, startDate: true, endDate: true },
       },
     },
     orderBy: { uploadedAt: "desc" },
@@ -647,6 +717,12 @@ export async function listWallpapers(): Promise<WallpaperSummary[]> {
     mimeType: wallpaper.mimeType,
     imageUrl: buildWallpaperImageUrl(wallpaper.id),
     uploadedAt: wallpaper.uploadedAt.toISOString(),
+    uploadedBy: wallpaper.uploadedBy.username,
+    campaigns: wallpaper.campaigns.map((c) => ({
+      ...c,
+      startDate: c.startDate?.toISOString() ?? null,
+      endDate: c.endDate?.toISOString() ?? null,
+    })),
     isDefault: settings.defaultWallpaperId === wallpaper.id,
     usageStatus: wallpaper.campaigns.some((campaign) => campaign.status === CampaignStatus.ACTIVE)
       ? "IN_USE"
@@ -658,6 +734,7 @@ export async function listWallpapers(): Promise<WallpaperSummary[]> {
 
 export async function createWallpaperRecord(payload: {
   title: string;
+  description?: string | null;
   filename: string;
   mimeType: string;
   imageData: Buffer;
@@ -672,7 +749,7 @@ export async function createWallpaperRecord(payload: {
     data: {
       title: payload.title,
       filename: payload.filename,
-      description: null,
+      description: payload.description ?? null,
       tags: [],
       resolution: payload.resolution,
       width: payload.width,
@@ -716,49 +793,41 @@ export async function deleteWallpaperRecord(payload: {
   wallpaperId: string;
   deletedById: string;
 }): Promise<void> {
-  const wallpaper = await prisma.wallpaper.findFirst({
-    where: {
-      id: payload.wallpaperId,
-      deletedAt: null,
-    },
-    include: {
-      campaigns: {
-        where: {
-          status: {
-            in: [CampaignStatus.DRAFT, CampaignStatus.SCHEDULED, CampaignStatus.ACTIVE],
+  await prisma.$transaction(
+    async (tx) => {
+      const wallpaper = await tx.wallpaper.findFirst({
+        where: { id: payload.wallpaperId, deletedAt: null },
+        include: {
+          campaigns: {
+            where: {
+              status: {
+                in: [CampaignStatus.DRAFT, CampaignStatus.SCHEDULED, CampaignStatus.ACTIVE],
+              },
+            },
           },
         },
-      },
+      });
+      if (!wallpaper) throw new Error("Wallpaper not found");
+      const setting = await tx.systemSetting.findUnique({ where: { key: "defaultWallpaperId" } });
+      if (setting && JSON.parse(setting.valueJson) === wallpaper.id)
+        throw new Error(
+          "This is the default wallpaper. Choose a different default before deleting it.",
+        );
+      if (wallpaper.campaigns.length)
+        throw new Error(
+          "Wallpaper is used by a draft, scheduled, or active campaign. Review its campaigns before deleting.",
+        );
+      await tx.wallpaper.update({ where: { id: wallpaper.id }, data: { deletedAt: new Date() } });
+      await tx.activityLog.create({
+        data: {
+          actor: payload.deletedById,
+          action: "wallpaper.deleted",
+          detail: wallpaper.filename,
+        },
+      });
     },
-  });
-
-  if (!wallpaper) {
-    throw new Error("Wallpaper not found");
-  }
-
-  const settings = await getSettings();
-  if (settings.defaultWallpaperId === wallpaper.id) {
-    throw new Error("Wallpaper is configured as the default wallpaper");
-  }
-
-  if (wallpaper.campaigns.length > 0) {
-    throw new Error("Wallpaper is still used by active or scheduled campaigns");
-  }
-
-  await prisma.wallpaper.update({
-    where: { id: wallpaper.id },
-    data: {
-      deletedAt: new Date(),
-    },
-  });
-
-  await prisma.activityLog.create({
-    data: {
-      actor: payload.deletedById,
-      action: "wallpaper.deleted",
-      detail: wallpaper.filename,
-    },
-  });
+    { isolationLevel: "Serializable" },
+  );
 }
 
 export async function listCampaigns(): Promise<CampaignSummary[]> {
@@ -787,7 +856,7 @@ export async function createCampaignRecord(payload: {
   const wallpaper = await prisma.wallpaper.findUnique({
     where: { id: payload.wallpaperId },
   });
-  if (!wallpaper) {
+  if (!wallpaper || wallpaper.deletedAt) {
     throw new Error("Wallpaper not found");
   }
 
@@ -871,7 +940,7 @@ export async function updateCampaignRecord(payload: {
     where: { id: payload.wallpaperId },
   });
 
-  if (!wallpaper) {
+  if (!wallpaper || wallpaper.deletedAt) {
     throw new Error("Wallpaper not found");
   }
 
@@ -1186,10 +1255,7 @@ export async function removeQueueItemRecord(payload: {
   return listQueue();
 }
 
-export async function listDeployments(options?: {
-  page?: number;
-  limit?: number;
-}): Promise<{
+export async function listDeployments(options?: { page?: number; limit?: number }): Promise<{
   items: DeploymentLogItem[];
   total: number;
   page: number;
@@ -1490,4 +1556,49 @@ export async function getHealthStatus() {
         ? "running"
         : "stale",
   };
+}
+
+export async function updateWallpaperDetails(
+  wallpaperId: string,
+  details: { title: string; description?: string | null },
+  actor: string,
+) {
+  const result = await prisma.$transaction(async (tx) => {
+    const changed = await tx.wallpaper.updateMany({
+      where: { id: wallpaperId, deletedAt: null },
+      data: details,
+    });
+    if (!changed.count) return false;
+    await tx.activityLog.create({
+      data: { actor, action: "wallpaper.updated", detail: details.title },
+    });
+    return true;
+  });
+  return result ? (await listWallpapers()).find((w) => w.id === wallpaperId) : null;
+}
+
+export async function setDefaultWallpaper(wallpaperId: string, actor: string) {
+  const result = await prisma.$transaction(
+    async (tx) => {
+      const wallpaper = await tx.wallpaper.findFirst({
+        where: { id: wallpaperId, deletedAt: null },
+      });
+      if (!wallpaper) return false;
+      await tx.systemSetting.upsert({
+        where: { key: "defaultWallpaperId" },
+        create: {
+          key: "defaultWallpaperId",
+          valueJson: JSON.stringify(wallpaperId),
+          updatedById: actor,
+        },
+        update: { valueJson: JSON.stringify(wallpaperId), updatedById: actor },
+      });
+      await tx.activityLog.create({
+        data: { actor, action: "wallpaper.default_changed", detail: wallpaper.title },
+      });
+      return true;
+    },
+    { isolationLevel: "Serializable" },
+  );
+  return result ? { defaultWallpaperId: wallpaperId } : null;
 }

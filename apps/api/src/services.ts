@@ -24,6 +24,10 @@ export async function normalizeWallpaperImage(
   sourceBuffer: Buffer,
   originalFilename: string,
 ): Promise<NormalizedWallpaper> {
+  const metadata = await sharp(sourceBuffer).metadata();
+  if (metadata.format !== "jpeg" && metadata.format !== "png") {
+    throw new Error("Only JPG and PNG images are supported");
+  }
   const pipeline = sharp(sourceBuffer).rotate().resize(FULL_HD_WIDTH, FULL_HD_HEIGHT, {
     fit: "cover",
     position: "centre",
