@@ -264,7 +264,7 @@ Prepare the product for operational deployment.
 
 ### Challenge / Verification
 
-- Authentication race follow-up (2026-09-28): `auth-session-race-verification.md` records real PostgreSQL RED→GREEN evidence and ten passing concurrency/control tests. Serializable revision validation/session issuance is atomic against account updates/revocation; no race-fix schema change or live migration was required. AD twelve and Wallpaper Library nine regressions, build/typecheck/lint and bounded Prisma validation pass.
+- Authentication race follow-up (2026-09-28): `auth-session-race-verification.md` records real PostgreSQL RED→GREEN evidence and fourteen passing concurrency/control tests. Serializable revision validation/session issuance is atomic against account updates/revocation; no race-fix schema change or live migration was required. AD twelve and Wallpaper Library nine regressions, build/typecheck/lint and bounded Prisma validation pass.
 
 - Assigned AD login (2026-09-27): `ad-login-contract.md` records twelve isolated auth/assignment tests, nine Wallpaper Library regressions, Users/login browser checks, build/typecheck/lint and Prisma validation. AD source assignment remains explicit; existing accounts stay LOCAL. Initial LDAPS trust probe failed; owner approved LDAP-only certificate bypass via `LDAP_TLS_REJECT_UNAUTHORIZED=false`. Local live service bind and lookup of widji.santoso then passed. Twelve isolated auth tests cover default verification and explicit bypass. Database change and target-host user-password login acceptance remain pending.
 
